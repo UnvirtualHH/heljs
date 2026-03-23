@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { cell, dynAttr, dynBlock, dynText, frag, get, h, hydrate, mount, node, set } from "./runtime";
+import { renderToString } from "./server";
 
 describe("runtime", () => {
   beforeEach(() => {
@@ -55,6 +56,26 @@ describe("runtime", () => {
     expect(root.querySelector("h1")).toBe(stable);
   });
 
+  it("cleans up removed nodes when a block slot switches branches", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const visible = cell(true);
+    mount(
+      () =>
+        h("section", null, dynBlock(() => (get(visible) ? h("div", { class: "open" }, "Alpha") : h("div", { class: "closed" }, "Beta")))),
+      root,
+    );
+
+    expect(root.querySelector(".open")?.textContent).toBe("Alpha");
+
+    set(visible, false);
+    await Promise.resolve();
+
+    expect(root.querySelector(".open")).toBeNull();
+    expect(root.querySelector(".closed")?.textContent).toBe("Beta");
+  });
+
   it("falls back to a local remount when hydrated child structure mismatches", () => {
     const root = document.createElement("div");
     root.innerHTML = "<main><span>wrong</span><p>keep</p></main>";
@@ -89,5 +110,48 @@ describe("runtime", () => {
     const spans = root.querySelectorAll("span");
     expect(spans).toHaveLength(2);
     expect(Array.from(spans, (entry) => entry.textContent)).toEqual(["left", "right"]);
+  });
+
+  it("hydrates prerendered html and keeps events working", () => {
+    const root = document.createElement("div");
+    const count = cell(0);
+
+    root.innerHTML = renderToString(() =>
+      h(
+        "main",
+        null,
+        node(() =>
+          h("button", { disabled: dynAttr(() => get(count) === 0), onClick: () => set(count, get(count) + 1) }, "Increment"),
+        ),
+        dynBlock(() => h("p", null, "Value: ", dynText(() => get(count)))),
+      ),
+    );
+    document.body.appendChild(root);
+
+    hydrate(
+      () =>
+        h(
+          "main",
+          null,
+          node(() =>
+            h("button", { disabled: dynAttr(() => get(count) === 0), onClick: () => set(count, get(count) + 1) }, "Increment"),
+          ),
+          dynBlock(() => h("p", null, "Value: ", dynText(() => get(count)))),
+        ),
+      root,
+    );
+
+    const button = root.querySelector("button");
+    expect(button).not.toBeNull();
+    expect(button?.textContent).toBe("Increment");
+    expect(button?.hasAttribute("disabled")).toBe(true);
+
+    button?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+    return Promise.resolve().then(() => {
+      expect(button?.textContent).toBe("Increment");
+      expect(button?.hasAttribute("disabled")).toBe(false);
+      expect(root.querySelector("p")?.textContent).toBe("Value: 1");
+    });
   });
 });

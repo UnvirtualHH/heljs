@@ -92,14 +92,14 @@ Ziel: Das Framework darf nicht mehr nur manuell verifiziert werden.
 - [x] DOM-Tests fuer Attr-Slots
 - [x] DOM-Tests fuer Block-Slots
 - [x] Tests fuer Fragment-/Multi-Root-Komponenten
-- [ ] Cleanup-Tests fuer entfernte Teilbaeume
+- [x] Cleanup-Tests fuer entfernte Teilbaeume
 
 ### SSR/Hydration-Tests
 
 - [x] String-Renderer-Snapshots
-- [ ] Hydration-Tests gegen prerendered HTML
+- [x] Hydration-Tests gegen prerendered HTML
 - [x] Mismatch-Fallback-Tests
-- [ ] Event-Rebinding-Tests nach Hydration
+- [x] Event-Rebinding-Tests nach Hydration
 
 ### Tooling
 
@@ -107,7 +107,7 @@ Ziel: Das Framework darf nicht mehr nur manuell verifiziert werden.
   - bevorzugt Vitest
 - [x] Headless DOM-Testumgebung festlegen
   - `happy-dom` oder `jsdom`
-- [ ] CI-Basis definieren
+- [x] CI-Basis definieren
   - typecheck
   - test
   - build
