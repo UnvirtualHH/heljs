@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
+
+# Tooling caches
+.tmp-plugin/
+.vite/
+.vitest/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local project folders
+.claude/
+
+# Nested project outputs
+codex version/node_modules/
+codex version/dist/
+codex version/.tmp-plugin/
