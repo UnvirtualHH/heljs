@@ -835,8 +835,14 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
       disposeScope(entry.scope);
     }
 
+    let anchor: Node = start!;
+
     for (const entry of nextEntries) {
-      parent.insertBefore(entry.node, end!);
+      const expectedNextSibling = anchor.nextSibling;
+      if (expectedNextSibling !== entry.node) {
+        parent.insertBefore(entry.node, expectedNextSibling ?? end!);
+      }
+      anchor = entry.node;
     }
 
     currentEntries = nextEntries;

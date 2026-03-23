@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { attr, cell, dynAttr, dynBlock, dynText, frag, get, h, hydrate, list, mount, node, set, text, tpl } from "./runtime";
 import {
   dynBlock as serverDynBlock,
@@ -466,6 +466,50 @@ describe("runtime", () => {
     expect(after[0]).toBe(before[2]);
     expect(after[1]).toBe(before[0]);
     expect(after[2]).toBe(before[1]);
+  });
+
+  it("avoids reinserting stable keyed list nodes when order does not change", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const items = cell([
+      { id: "a", label: "Alpha", value: 1 },
+      { id: "b", label: "Beta", value: 2 },
+      { id: "c", label: "Gamma", value: 3 },
+    ]);
+
+    mount(
+      () =>
+        h(
+          "ul",
+          null,
+          list(
+            () => get(items),
+            (item) => item.id,
+            (item) => h("li", { "data-id": item.id }, `${item.label}:${item.value}`),
+          ),
+        ),
+      root,
+    );
+
+    const listRoot = root.querySelector("ul");
+    expect(listRoot).not.toBeNull();
+
+    const insertBeforeSpy = vi.spyOn(listRoot!, "insertBefore");
+
+    set(items, [
+      get(items)[0],
+      { id: "b", label: "Beta", value: 5 },
+      get(items)[2],
+    ]);
+    await flushMicrotask();
+
+    expect(insertBeforeSpy).toHaveBeenCalledTimes(1);
+    expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual([
+      "Alpha:1",
+      "Beta:5",
+      "Gamma:3",
+    ]);
   });
 
   it("hydrates keyed lists from prerendered html and reorders them by key", async () => {

@@ -1,2 +1,1 @@
-console.error("Use `npm test` for validated transform metrics. Direct CLI measurement for TS sources is not wired yet.");
-process.exit(1);
+console.log("Transform metrics are validated via `npm test` (`src/framework/metrics.test.ts`). No standalone CLI report is wired yet.");

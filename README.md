@@ -27,6 +27,7 @@ Build pruefen:
 ```bash
 npm run typecheck
 npm run build
+npm run bench
 ```
 
 `npm run build` macht jetzt drei Dinge:
@@ -36,6 +37,8 @@ npm run build
 - `dist/index.html` mit prerendered App-HTML fuellen
 
 Im Dev-Server (`npm run dev`) wird ohne handgeschriebenes Demo-HTML normal gemountet. Im Build-Output wird dagegen echtes prerendered Markup erzeugt, das der Client anschliessend hydriert.
+
+`npm run bench` fuehrt den aktuellen Mikro-Benchmark-Harness fuer Counter-, Tabellen- und Listen-Pfade ueber Vitest Bench aus.
 
 ## Wie man es benutzt
 

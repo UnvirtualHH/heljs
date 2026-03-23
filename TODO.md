@@ -128,7 +128,12 @@ Ziel: Nicht Solid-Level, aber klar besser als ein naiver DOM-Ansatz.
 - [x] Statische Teilbaeume erkennen
 - [x] Template-Cloning fuer statische Strukturen vorbereiten
 - [ ] Unnoetige `dyn*`-Wrapper weiter reduzieren
+  - [x] direkte Cell-Textbindungsfaelle ueber `text(...)`
+  - [x] direkte Cell-Attributbindungsfaelle ueber `attr(...)`
+  - [ ] weitere konservative Spezialfaelle identifizieren
 - [ ] Closure-Allokationen im Output messen und senken
+  - [x] reproduzierbare Transform-Metriken als Testbasis
+  - [ ] CLI-Report oder Benchmark-Report mit belastbarer Ausgabe
 
 ### Runtime
 
@@ -136,15 +141,16 @@ Ziel: Nicht Solid-Level, aber klar besser als ein naiver DOM-Ansatz.
 - [ ] Block-Updates feiner machen
   - heute oft kompletter Slot-Replacement
   - spaeter kleinere DOM-Mutationen
+  - [x] keyed Listen bei stabilem Order-Update ohne unnötige Re-Inserts platzieren
 - [ ] Internes Batch-Modell haerten
 - [ ] Subscription- und Effect-Overhead messen
 
 ### Benchmarks
 
 - [ ] Mikro-Benchmarks bauen
-  - Counter
-  - Tabellenupdates
-  - Listen-Toggle
+  - [x] Counter
+  - [x] Tabellenupdates
+  - [x] Listen-Toggle
   - grosse statische Teilbaeume
 - [ ] Vergleichsbasis definieren
   - Vue

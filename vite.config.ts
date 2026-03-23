@@ -8,6 +8,9 @@ export default defineConfig(({ isSsrBuild }) => ({
     environment: "happy-dom",
     include: ["src/**/*.test.ts"],
   },
+  benchmark: {
+    include: ["src/**/*.bench.ts"],
+  },
   resolve: {
     alias: {
       "@hel/runtime": path.resolve(
