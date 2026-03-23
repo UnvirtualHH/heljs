@@ -9,6 +9,7 @@
     "build:server": "vite build --ssr src/entry-server.tsx --outDir dist/server",
     "prerender": "node scripts/prerender.mjs",
     "build": "npm run build:client && npm run build:server && npm run prerender",
+    "measure:transform": "node scripts/measure-transform.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

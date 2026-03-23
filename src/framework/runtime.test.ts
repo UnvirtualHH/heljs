@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { cell, dynAttr, dynBlock, dynText, frag, get, h, hydrate, list, mount, node, set, tpl } from "./runtime";
+import { attr, cell, dynAttr, dynBlock, dynText, frag, get, h, hydrate, list, mount, node, set, text, tpl } from "./runtime";
 import {
   dynBlock as serverDynBlock,
   dynText as serverDynText,
@@ -29,6 +29,37 @@ describe("runtime", () => {
     await flushMicrotask();
 
     expect(root.textContent).toBe("2");
+  });
+
+  it("updates direct text cell bindings without the generic dynText wrapper", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const count = cell(0);
+    mount(() => h("p", null, text(count)), root);
+
+    expect(root.textContent).toBe("0");
+
+    set(count, 4);
+    await flushMicrotask();
+
+    expect(root.textContent).toBe("4");
+  });
+
+  it("updates direct attr cell bindings without the generic dynAttr wrapper", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const value = cell("alpha");
+    mount(() => h("input", { type: "text", value: attr(value) }), root);
+
+    const input = root.querySelector("input");
+    expect(input?.value).toBe("alpha");
+
+    set(value, "beta");
+    await flushMicrotask();
+
+    expect(input?.value).toBe("beta");
   });
 
   it("clones static templates on mount without using the fallback builder", () => {
@@ -74,6 +105,25 @@ describe("runtime", () => {
 
     expect(fallbackCalls).toBe(1);
     expect(root.querySelector(".hero")?.textContent).toBe("HelStatic");
+  });
+
+  it("clones static fragment templates on mount", () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    mount(
+      () =>
+        h(
+          "section",
+          null,
+          tpl("<span>One</span><span>Two</span>", () => frag(h("span", null, "One"), h("span", null, "Two"))),
+        ),
+      root,
+    );
+
+    const spans = root.querySelectorAll("span");
+    expect(spans).toHaveLength(2);
+    expect(Array.from(spans, (entry) => entry.textContent)).toEqual(["One", "Two"]);
   });
 
   it("keeps textarea value in sync as a controlled property", async () => {

@@ -7,6 +7,16 @@ type KeyedList<T> = {
   render: (item: T, index: number) => unknown;
 };
 
+type TextBinding<T = unknown> = {
+  [TEXT_BINDING]: true;
+  cell: Cell<T>;
+};
+
+type AttrBinding<T = unknown> = {
+  [ATTR_BINDING]: true;
+  cell: Cell<T>;
+};
+
 type TemplateFactory<T = unknown> = {
   [TEMPLATE_FACTORY]: true;
   html: string;
@@ -21,6 +31,8 @@ type Renderable =
   | undefined
   | Dynamic
   | KeyedList<any>
+  | TextBinding<any>
+  | AttrBinding<any>
   | TemplateFactory<any>
   | NodeFactory
   | Renderable[]
@@ -55,6 +67,8 @@ const BLOCK_END = "hs:block:end";
 const DYNAMIC = Symbol("hel.dynamic");
 const LIST = Symbol("hel.list");
 const NODE_FACTORY = Symbol("hel.node-factory");
+const TEXT_BINDING = Symbol("hel.text-binding");
+const ATTR_BINDING = Symbol("hel.attr-binding");
 const TEMPLATE_FACTORY = Symbol("hel.template-factory");
 const VOID_TAGS = new Set([
   "area",
@@ -103,6 +117,20 @@ export function node<T>(read: () => T): NodeFactory<T> {
   return {
     [NODE_FACTORY]: true,
     read,
+  };
+}
+
+export function text<T>(cell: Cell<T>): TextBinding<T> {
+  return {
+    [TEXT_BINDING]: true,
+    cell,
+  };
+}
+
+export function attr<T>(cell: Cell<T>): AttrBinding<T> {
+  return {
+    [ATTR_BINDING]: true,
+    cell,
   };
 }
 
@@ -157,6 +185,14 @@ function isDynamic(value: unknown): value is Dynamic {
 
 function isNodeFactory(value: unknown): value is NodeFactory {
   return typeof value === "object" && value !== null && NODE_FACTORY in value;
+}
+
+function isTextBinding(value: unknown): value is TextBinding {
+  return typeof value === "object" && value !== null && TEXT_BINDING in value;
+}
+
+function isAttrBinding(value: unknown): value is AttrBinding {
+  return typeof value === "object" && value !== null && ATTR_BINDING in value;
 }
 
 function isTemplateFactory(value: unknown): value is TemplateFactory {
@@ -215,6 +251,10 @@ function toStyleString(value: unknown): string {
 }
 
 function resolveAttrValue(value: unknown): unknown {
+  if (isAttrBinding(value)) {
+    return get(value.cell);
+  }
+
   if (!isDynamic(value)) {
     return value;
   }
@@ -261,6 +301,14 @@ function serializeProps(props: Record<string, unknown> | null): string {
 function serializeValue(value: unknown): string {
   if (isNodeFactory(value)) {
     return serializeValue(value.read());
+  }
+
+  if (isTextBinding(value)) {
+    return escapeHtml(normalizeTextValue(get(value.cell)));
+  }
+
+  if (isAttrBinding(value)) {
+    return "";
   }
 
   if (isTemplateFactory(value)) {

@@ -126,13 +126,13 @@ Ziel: Nicht Solid-Level, aber klar besser als ein naiver DOM-Ansatz.
 ### Compiler
 
 - [x] Statische Teilbaeume erkennen
-- [ ] Template-Cloning fuer statische Strukturen vorbereiten
+- [x] Template-Cloning fuer statische Strukturen vorbereiten
 - [ ] Unnoetige `dyn*`-Wrapper weiter reduzieren
 - [ ] Closure-Allokationen im Output messen und senken
 
 ### Runtime
 
-- [ ] Template-Instanziierung fuer statische Elemente einfuehren
+- [x] Template-Instanziierung fuer statische Elemente einfuehren
 - [ ] Block-Updates feiner machen
   - heute oft kompletter Slot-Replacement
   - spaeter kleinere DOM-Mutationen

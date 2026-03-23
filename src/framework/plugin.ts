@@ -37,6 +37,8 @@ type UsedHelpers = {
   set: boolean;
   h: boolean;
   node: boolean;
+  text: boolean;
+  attr: boolean;
   tpl: boolean;
   dynText: boolean;
   dynAttr: boolean;
@@ -97,6 +99,8 @@ function createUsedHelpers(): UsedHelpers {
     set: false,
     h: false,
     node: false,
+    text: false,
+    attr: false,
     tpl: false,
     dynText: false,
     dynAttr: false,
@@ -120,11 +124,31 @@ function shouldRewrite(name: string, path: NodePath, reactive: Map<string, React
 }
 
 function wrapTextDynamic(expression: t.Expression, used: UsedHelpers): t.Expression {
+  if (
+    t.isCallExpression(expression) &&
+    t.isIdentifier(expression.callee, { name: "__get" }) &&
+    expression.arguments.length === 1 &&
+    t.isIdentifier(expression.arguments[0])
+  ) {
+    used.text = true;
+    return t.callExpression(t.identifier("__text"), [expression.arguments[0]]);
+  }
+
   used.dynText = true;
   return t.callExpression(t.identifier("__dynText"), [t.arrowFunctionExpression([], expression)]);
 }
 
 function wrapAttrDynamic(expression: t.Expression, used: UsedHelpers): t.Expression {
+  if (
+    t.isCallExpression(expression) &&
+    t.isIdentifier(expression.callee, { name: "__get" }) &&
+    expression.arguments.length === 1 &&
+    t.isIdentifier(expression.arguments[0])
+  ) {
+    used.attr = true;
+    return t.callExpression(t.identifier("__attr"), [expression.arguments[0]]);
+  }
+
   used.dynAttr = true;
   return t.callExpression(t.identifier("__dynAttr"), [t.arrowFunctionExpression([], expression)]);
 }
@@ -577,7 +601,7 @@ function staticJsxHtml(node: t.JSXElement | t.JSXFragment): string | null {
       return null;
     }
 
-    const attrName = t.isJSXIdentifier(attribute.name) ? attribute.name.name : "";
+    const attrName = t.isJSXIdentifier(attribute.name) ? (attribute.name.name === "className" ? "class" : attribute.name.name) : "";
     attrs.push(value === "" ? ` ${attrName}=""` : ` ${attrName}="${value}"`);
   }
 
@@ -1026,6 +1050,8 @@ function injectRuntimeImport(ast: t.File, used: UsedHelpers): void {
     { imported: "set", local: "__set", enabled: used.set },
     { imported: "h", local: "__h", enabled: used.h },
     { imported: "node", local: "__node", enabled: used.node },
+    { imported: "text", local: "__text", enabled: used.text },
+    { imported: "attr", local: "__attr", enabled: used.attr },
     { imported: "tpl", local: "__tpl", enabled: used.tpl },
     { imported: "dynText", local: "__dynText", enabled: used.dynText },
     { imported: "dynAttr", local: "__dynAttr", enabled: used.dynAttr },

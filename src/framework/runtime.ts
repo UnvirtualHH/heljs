@@ -29,6 +29,16 @@ type NodeFactory<T = unknown> = {
   read: () => T;
 };
 
+type TextBinding<T = unknown> = {
+  [TEXT_BINDING]: true;
+  cell: Cell<T>;
+};
+
+type AttrBinding<T = unknown> = {
+  [ATTR_BINDING]: true;
+  cell: Cell<T>;
+};
+
 type TemplateFactory<T = unknown> = {
   [TEMPLATE_FACTORY]: true;
   html: string;
@@ -45,6 +55,8 @@ type KeyedList<T> = {
 const BLOCK_START = "hs:block:start";
 const BLOCK_END = "hs:block:end";
 const NODE_FACTORY = Symbol("hel.node-factory");
+const TEXT_BINDING = Symbol("hel.text-binding");
+const ATTR_BINDING = Symbol("hel.attr-binding");
 const TEMPLATE_FACTORY = Symbol("hel.template-factory");
 const LIST = Symbol("hel.list");
 const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
@@ -344,6 +356,20 @@ export function node<T>(read: () => T): NodeFactory<T> {
   };
 }
 
+export function text<T>(cell: Cell<T>): TextBinding<T> {
+  return {
+    [TEXT_BINDING]: true,
+    cell,
+  };
+}
+
+export function attr<T>(cell: Cell<T>): AttrBinding<T> {
+  return {
+    [ATTR_BINDING]: true,
+    cell,
+  };
+}
+
 export function tpl<T>(html: string, read: () => T): TemplateFactory<T> {
   return {
     [TEMPLATE_FACTORY]: true,
@@ -395,6 +421,14 @@ function isDynamic(value: unknown): value is Dynamic {
 
 function isNodeFactory(value: unknown): value is NodeFactory {
   return typeof value === "object" && value !== null && NODE_FACTORY in value;
+}
+
+function isTextBinding(value: unknown): value is TextBinding {
+  return typeof value === "object" && value !== null && TEXT_BINDING in value;
+}
+
+function isAttrBinding(value: unknown): value is AttrBinding {
+  return typeof value === "object" && value !== null && ATTR_BINDING in value;
 }
 
 function isTemplateFactory(value: unknown): value is TemplateFactory {
@@ -558,6 +592,58 @@ function mountTextSlot(parent: Node, read: () => unknown): void {
 
     previous = next;
     text.data = next;
+  });
+}
+
+function mountTextBinding(parent: Node, cell: Cell<unknown>): void {
+  const claimed = claimHydrationNode(parent, (node) => node.nodeType === Node.TEXT_NODE) as Text | null;
+  if (!claimed && currentHydrationFrame(parent)?.current) {
+    bailHydration(parent, "dynamic text");
+  }
+  const text = claimed ?? document.createTextNode("");
+
+  if (!claimed) {
+    parent.appendChild(text);
+  }
+
+  let previous = claimed ? text.data : "";
+  effect(() => {
+    const next = normalizeTextValue(get(cell));
+    if (next === previous) {
+      return;
+    }
+
+    previous = next;
+    text.data = next;
+  });
+}
+
+function mountAttrBinding(element: HTMLElement, key: string, cell: Cell<unknown>): void {
+  let initialized = false;
+  let previous: unknown;
+  let hydrated = isHydrating();
+
+  effect(() => {
+    const next = get(cell);
+
+    if (hydrated) {
+      hydrated = false;
+      if (!matchesHydratedProperty(element, key, next)) {
+        warnHydrationMismatch(`attr(${key})`, element);
+        writeProperty(element, key, next);
+      }
+      previous = next;
+      initialized = true;
+      return;
+    }
+
+    if (initialized && Object.is(previous, next)) {
+      return;
+    }
+
+    previous = next;
+    initialized = true;
+    writeProperty(element, key, next);
   });
 }
 
@@ -792,6 +878,11 @@ function appendChild(parent: Node, value: unknown): void {
     return;
   }
 
+  if (isTextBinding(value)) {
+    mountTextBinding(parent, value.cell);
+    return;
+  }
+
   if (isTemplateFactory(value)) {
     if (isHydrating()) {
       appendChild(parent, value.read());
@@ -970,6 +1061,11 @@ function applyProp(element: HTMLElement, key: string, value: unknown): void {
 
   if (key.startsWith("on") && typeof value === "function") {
     bindEvent(element, key, value as EventListener);
+    return;
+  }
+
+  if (isAttrBinding(value)) {
+    mountAttrBinding(element, key, value.cell);
     return;
   }
 

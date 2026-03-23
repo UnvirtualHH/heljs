@@ -56,10 +56,10 @@ describe("compiler plugin", () => {
     `);
 
     expect(output).toMatchInlineSnapshot(`
-      "import { cell as __cell, get as __get, h as __h, node as __node, tpl as __tpl, dynText as __dynText } from "@hel/runtime";
+      "import { cell as __cell, get as __get, h as __h, node as __node, text as __text, tpl as __tpl } from "@hel/runtime";
       export function Banner() {const __cell_count_0 = __cell(
           0);
-        return __h("section", null, __tpl("<h1>Static</h1>", () => __h("h1", null, "Static")), __node(() => __h("p", null, __dynText(() => __get(__cell_count_0)))));
+        return __h("section", null, __tpl("<h1>Static</h1>", () => __h("h1", null, "Static")), __node(() => __h("p", null, __text(__cell_count_0))));
       }"
     `);
   });
@@ -73,6 +73,39 @@ describe("compiler plugin", () => {
 
     expect(output).toContain('__tpl("<div class=\\"hero\\"><strong>Hel</strong><span>Static</span></div>"');
     expect(output).not.toContain("__node(() => __h(\"div\"");
+  });
+
+  it("uses direct attr bindings for simple reactive prop reads", () => {
+    const output = transform(`
+      export function Field() {
+        let title = "hel";
+        return <input value={title} />;
+      }
+    `);
+
+    expect(output).toContain("__attr(__cell_title_0)");
+    expect(output).not.toContain("__dynAttr(() => __get(__cell_title_0))");
+  });
+
+  it("normalizes className when emitting static templates", () => {
+    const output = transform(`
+      export function Banner() {
+        return <section><div className="hero">Hel</div></section>;
+      }
+    `);
+
+    expect(output).toContain('__tpl("<div class=\\"hero\\">Hel</div>"');
+    expect(output).not.toContain('className=\\"hero\\"');
+  });
+
+  it("uses template factories for fully static fragments", () => {
+    const output = transform(`
+      export function Banner() {
+        return <section><><span>One</span><span>Two</span></></section>;
+      }
+    `);
+
+    expect(output).toContain('__tpl("<span>One</span><span>Two</span>"');
   });
 
   it("treats mapped jsx arrays as block dynamics instead of text dynamics", () => {
