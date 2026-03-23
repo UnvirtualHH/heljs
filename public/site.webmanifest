@@ -1,0 +1,19 @@
+{
+  "name": "Hel",
+  "short_name": "Hel",
+  "icons": [
+    {
+      "src": "/hel-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/hel-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#f6fbf6",
+  "background_color": "#f8fcf7",
+  "display": "standalone"
+}

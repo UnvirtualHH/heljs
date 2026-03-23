@@ -1,0 +1,206 @@
+:root {
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  color: #1f2a2e;
+  background: linear-gradient(155deg, #f8fcf7 0%, #dbe9de 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+#app {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+}
+
+.app {
+  width: min(680px, 100%);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(181, 101, 255, 0.12), transparent 28%),
+    linear-gradient(180deg, #fcfff9 0%, #f6fbf6 100%);
+  border: 1px solid #b9cfbe;
+  box-shadow: 0 24px 60px rgba(39, 74, 54, 0.15);
+  padding: 1.5rem;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1rem;
+  align-items: center;
+}
+
+.hero-logo {
+  width: 112px;
+  height: 112px;
+  object-fit: contain;
+  border-radius: 24px;
+  background: radial-gradient(circle at 30% 30%, rgba(107, 233, 255, 0.12), rgba(161, 66, 255, 0.08));
+  box-shadow:
+    inset 0 0 0 1px rgba(59, 83, 90, 0.08),
+    0 18px 30px rgba(38, 52, 58, 0.18);
+}
+
+.hero-copy {
+  min-width: 0;
+}
+
+.eyebrow {
+  display: inline-block;
+  margin-bottom: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #5c6770;
+}
+
+h1 {
+  margin: 0;
+  font-size: 2rem;
+  line-height: 1.05;
+}
+
+p {
+  line-height: 1.45;
+}
+
+.hero p {
+  margin: 0.45rem 0 0;
+}
+
+.chips {
+  margin: 1rem 0 0.8rem;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  background: #dff1e5;
+  color: #205842;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 1rem 0;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  background: #1c7c54;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:nth-child(2) {
+  background: #245f6d;
+}
+
+button:nth-child(3) {
+  background: #9b5b17;
+}
+
+button:nth-child(4) {
+  background: #495d64;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.panel {
+  border: 1px solid #c9d7cb;
+  border-radius: 12px;
+  background: #f4faf3;
+  padding: 0.9rem;
+}
+
+.stats-table {
+  width: 100%;
+  margin-top: 0.8rem;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.stats-table th,
+.stats-table td {
+  padding: 0.65rem 0.8rem;
+  border-bottom: 1px solid #d7e3d8;
+  text-align: left;
+}
+
+.stats-table th {
+  width: 42%;
+  color: #4f645a;
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.stats-table td {
+  color: #173941;
+  font-weight: 600;
+}
+
+.stats-table tr:last-child th,
+.stats-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.panel.muted {
+  color: #4e5f57;
+  background: #f2f5f2;
+}
+
+.status {
+  margin-bottom: 0;
+  color: #245f6d;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  #app {
+    padding: 1rem;
+  }
+
+  .app {
+    padding: 1.1rem;
+  }
+
+  .hero {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-logo {
+    width: 88px;
+    height: 88px;
+  }
+}
