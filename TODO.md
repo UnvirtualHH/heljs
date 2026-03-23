@@ -204,10 +204,10 @@ Ziel: Von "coolem Prototyp" zu "damit kann man Dinge bauen".
 
 ### Rendering-Features
 
-- [ ] keyed List-Reconciliation
+- [x] keyed List-Reconciliation
 - [ ] offizielle Listen-Story
   - Compiler-Pattern
-  - Helper
+  - [x] Helper
   - Control-Flow-Komponente
 - [ ] bessere Fragment-Unterstuetzung ueber alle Pfade
 - [ ] kontrollierte Form-Elemente testen und haerten

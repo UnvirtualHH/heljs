@@ -163,6 +163,71 @@ Der Compiler erzeugt daraus direkte DOM-Aufrufe und spezialisierte Slots fuer:
 - Attribute/Properties
 - Block-Content
 
+### 6. Arrays und Listen
+
+Normale Arrays und `map(...)` funktionieren bereits:
+
+```tsx
+<ul>
+  {todos.map((todo) => (
+    <li>{todo.title}</li>
+  ))}
+</ul>
+```
+
+Das ist aktuell die **unkeyd** Listen-Variante. Sie ist okay fuer einfache Faelle, ersetzt aber bei strukturellen Aenderungen eher grober.
+
+Wenn du stabile Keys und DOM-Wiederverwendung bei Reorder willst, nutze die explizite `list(...)`-API:
+
+```tsx
+import { list } from "@hel/runtime";
+
+<ul>
+  {list(
+    () => todos,
+    (todo) => todo.id,
+    (todo) => <li>{todo.title}</li>,
+  )}
+</ul>
+```
+
+Aktuelle Semantik von `list(...)`:
+
+- keyed DOM-Wiederverwendung bei Reorder
+- SSR/Hydration-kompatibel
+- jedes Item muss genau **einen** Root-Node rendern
+- bewusst noch eine Runtime-API, keine Compiler-Magie
+
+Pragmatisch heisst das:
+
+- `map(...)` fuer einfache Listen
+- `list(...)` fuer stabile, keyed Listen
+
+### 7. Form-Inputs und Todos
+
+Kontrollierte Inputs funktionieren bereits mit normalen Events und `let`-State:
+
+```tsx
+let newTitle = "";
+let todos = [{ id: "a", title: "Ship Hel", done: false }];
+
+const remainingTodos = () => todos.filter((todo) => !todo.done).length;
+
+function addTodo(event: Event) {
+  event.preventDefault();
+  todos = [...todos, { id: crypto.randomUUID(), title: newTitle, done: false }];
+  newTitle = "";
+}
+```
+
+Der aktuelle Stil ist dabei bewusst immutable:
+
+- `todos = [...todos, next]`
+- `todos = todos.map(...)`
+- `todos = todos.filter(...)`
+
+Tiefe Store-Mutationen wie `setTodos(i, "done", true)` gibt es in Hel aktuell noch nicht.
+
 ## Was intern zu was wird
 
 Die User-API ist absichtlich "magisch". Intern landet sie aber auf einer kleinen Runtime.
@@ -258,7 +323,7 @@ Runtime-Semantik:
 - registriert einen `effect(...)`
 - patched spaeter nur das betroffene Attribut bzw. Property
 
-### Dynamische Bl�cke werden zu Block-Slots
+### Dynamische Blöcke werden zu Block-Slots
 
 User-Code:
 
@@ -318,11 +383,11 @@ Der aktuelle Stand achtet bereits auf ein paar wichtige Dinge:
 - Text-Slots patchen nur Text-Nodes
 - Attr-Slots patchen nur das jeweilige Attribut/Property
 - Nur echte Strukturwechsel laufen ueber Block-Slots
+- keyed `list(...)` kann DOM-Nodes bei Reorder wiederverwenden
 - Kein Virtual DOM
 
 Was noch fehlt:
 
-- keyed List-Reconciliation
 - gecachte derived values / echtes `memo`
 - optimierte Template-Cloning-Pfade fuer statische Teilbaeume
 
@@ -334,6 +399,7 @@ Was noch fehlt:
 - Lokale Funktionsanalyse ist bewusst konservativ und nur intra-component.
 - Hydration deckt aktuell den vorgesehenen Happy Path ab, aber noch keine harte Mismatch-Diagnostik.
 - Kein offizieller Store fuer tiefe Objekt-Reaktivitaet.
+- `list(...)` ist noch die offizielle keyed Story; automatische keyed Compiler-Erkennung gibt es noch nicht.
 
 ## Relevante Dateien
 

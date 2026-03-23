@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { cell, dynAttr, dynBlock, dynText, frag, get, h, hydrate, mount, node, set } from "./runtime";
+import { cell, dynAttr, dynBlock, dynText, frag, get, h, hydrate, list, mount, node, set } from "./runtime";
 import {
   dynBlock as serverDynBlock,
   dynText as serverDynText,
   h as serverH,
+  list as serverList,
   node as serverNode,
   renderToString,
 } from "./server";
@@ -135,6 +136,95 @@ describe("runtime", () => {
     rows = root.querySelectorAll("li");
     expect(rows).toHaveLength(4);
     expect(Array.from(rows, (entry) => entry.textContent)).toEqual(["Row 1", "Row 2", "Row 3", "Row 4"]);
+  });
+
+  it("reuses keyed list nodes when entries reorder", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const items = cell([
+      { id: "a", label: "Alpha" },
+      { id: "b", label: "Beta" },
+      { id: "c", label: "Gamma" },
+    ]);
+
+    mount(
+      () =>
+        h(
+          "ul",
+          null,
+          list(
+            () => get(items),
+            (item) => item.id,
+            (item) => h("li", { "data-id": item.id }, item.label),
+          ),
+        ),
+      root,
+    );
+
+    const before = Array.from(root.querySelectorAll("li"));
+    expect(before.map((entry) => entry.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+
+    set(items, [get(items)[2], get(items)[0], get(items)[1]]);
+    await flushMicrotask();
+
+    const after = Array.from(root.querySelectorAll("li"));
+    expect(after.map((entry) => entry.textContent)).toEqual(["Gamma", "Alpha", "Beta"]);
+    expect(after[0]).toBe(before[2]);
+    expect(after[1]).toBe(before[0]);
+    expect(after[2]).toBe(before[1]);
+  });
+
+  it("hydrates keyed lists from prerendered html and reorders them by key", async () => {
+    const root = document.createElement("div");
+    const items = cell([
+      { id: "a", label: "Alpha" },
+      { id: "b", label: "Beta" },
+      { id: "c", label: "Gamma" },
+    ]);
+
+    root.innerHTML = renderToString(() =>
+      serverH(
+        "ul",
+        null,
+        serverList(
+          () => [
+            { id: "a", label: "Alpha" },
+            { id: "b", label: "Beta" },
+            { id: "c", label: "Gamma" },
+          ],
+          (item) => item.id,
+          (item) => serverH("li", { "data-id": item.id }, item.label),
+        ),
+      ),
+    );
+    document.body.appendChild(root);
+
+    hydrate(
+      () =>
+        h(
+          "ul",
+          null,
+          list(
+            () => get(items),
+            (item) => item.id,
+            (item) => h("li", { "data-id": item.id }, item.label),
+          ),
+        ),
+      root,
+    );
+
+    const before = Array.from(root.querySelectorAll("li"));
+    expect(before.map((entry) => entry.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+
+    set(items, [get(items)[2], get(items)[0], get(items)[1]]);
+    await flushMicrotask();
+
+    const after = Array.from(root.querySelectorAll("li"));
+    expect(after.map((entry) => entry.textContent)).toEqual(["Gamma", "Alpha", "Beta"]);
+    expect(after[0]).toBe(before[2]);
+    expect(after[1]).toBe(before[0]);
+    expect(after[2]).toBe(before[1]);
   });
 
   it("falls back to a local remount when hydrated child structure mismatches", () => {

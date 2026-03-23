@@ -553,25 +553,29 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
 
   effect(() => {
     if (hydrated) {
-      const listFrame = openHydrationFrame(parent, "list", end!);
-      if (listFrame) {
-        listFrame.current = start!.nextSibling as ChildNode | null;
+      const items = binding.read();
+      const nodes = collectNodesBetween(start!, end!);
+
+      if (nodes.length !== items.length) {
+        warnHydrationMismatch(`list(${items.length})`, start);
+        for (const node of nodes) {
+          if (node.parentNode === parent) {
+            parent.removeChild(node);
+          }
+        }
+        hydrated = false;
+        currentEntries = [];
+      } else {
+        currentEntries = items.map((item, index) => ({
+          item,
+          key: binding.key(item, index),
+          node: nodes[index],
+        }));
+        hydrated = false;
+        return;
       }
 
-      const items = binding.read();
-      currentEntries = items.map((item, index) => ({
-        item,
-        key: binding.key(item, index),
-        node: readSingleRenderableNode(binding.render(item, index), "list()"),
-      }));
-
-      closeHydrationFrame(listFrame);
-      currentEntries = currentEntries.map((entry) => ({
-        ...entry,
-        node: entry.node.parentNode === parent ? entry.node : (collectNodesBetween(start!, end!)[currentEntries.indexOf(entry)] ?? entry.node),
-      }));
       hydrated = false;
-      return;
     }
 
     const items = binding.read();

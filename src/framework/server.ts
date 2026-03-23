@@ -1,5 +1,12 @@
 type DynamicKind = "text" | "attr" | "block";
 
+type KeyedList<T> = {
+  [LIST]: true;
+  read: () => T[];
+  key: (item: T, index: number) => string | number;
+  render: (item: T, index: number) => unknown;
+};
+
 type Renderable =
   | string
   | number
@@ -7,6 +14,7 @@ type Renderable =
   | null
   | undefined
   | Dynamic
+  | KeyedList<any>
   | NodeFactory
   | Renderable[]
   | ServerElement
@@ -38,6 +46,7 @@ type ServerFragment = {
 const BLOCK_START = "hs:block:start";
 const BLOCK_END = "hs:block:end";
 const DYNAMIC = Symbol("hel.dynamic");
+const LIST = Symbol("hel.list");
 const NODE_FACTORY = Symbol("hel.node-factory");
 const VOID_TAGS = new Set([
   "area",
@@ -113,12 +122,29 @@ export function dyn<T>(read: () => T): Dynamic<T> {
   return dynBlock(read);
 }
 
+export function list<T>(
+  read: () => T[],
+  key: (item: T, index: number) => string | number,
+  render: (item: T, index: number) => unknown,
+): KeyedList<T> {
+  return {
+    [LIST]: true,
+    read,
+    key,
+    render,
+  };
+}
+
 function isDynamic(value: unknown): value is Dynamic {
   return typeof value === "object" && value !== null && DYNAMIC in value;
 }
 
 function isNodeFactory(value: unknown): value is NodeFactory {
   return typeof value === "object" && value !== null && NODE_FACTORY in value;
+}
+
+function isKeyedList(value: unknown): value is KeyedList<unknown> {
+  return typeof value === "object" && value !== null && LIST in value;
 }
 
 function isServerElement(value: unknown): value is ServerElement {
@@ -227,6 +253,10 @@ function serializeValue(value: unknown): string {
     }
 
     return escapeHtml(normalizeTextValue(value.read()));
+  }
+
+  if (isKeyedList(value)) {
+    return `<!--${BLOCK_START}-->${value.read().map((item, index) => serializeValue(value.render(item, index))).join("")}<!--${BLOCK_END}-->`;
   }
 
   if (Array.isArray(value)) {

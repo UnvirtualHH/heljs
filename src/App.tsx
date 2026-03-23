@@ -1,9 +1,11 @@
+import { list } from "@hel/runtime";
+
 function AccentBadges() {
   return (
     <div class="badge-row">
       <span class="chip">AST transform</span>
       <span class="chip">direct DOM</span>
-      <span class="chip">list mvp</span>
+      <span class="chip">keyed lists</span>
     </div>
   );
 }
@@ -155,13 +157,17 @@ export function App() {
           <div class="list-block">
             <strong>Recent frames</strong>
             <ul class="frame-list">
-              {recentFrames().map((entry) => (
-                <li class="frame-row" data-state={entry.state}>
-                  <span class="frame-label">{entry.label}</span>
-                  <span class="frame-value">{entry.value}</span>
-                  <span class="frame-state">{entry.state}</span>
-                </li>
-              ))}
+              {list(
+                recentFrames,
+                (entry) => entry.id,
+                (entry) => (
+                  <li class="frame-row" data-state={entry.state}>
+                    <span class="frame-label">{entry.label}</span>
+                    <span class="frame-value">{entry.value}</span>
+                    <span class="frame-state">{entry.state}</span>
+                  </li>
+                ),
+              )}
             </ul>
           </div>
           <div class="todo-block">
