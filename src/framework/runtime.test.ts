@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { cell, dynAttr, dynBlock, dynText, frag, get, h, hydrate, list, mount, node, set } from "./runtime";
+import { cell, dynAttr, dynBlock, dynText, frag, get, h, hydrate, list, mount, node, set, tpl } from "./runtime";
 import {
   dynBlock as serverDynBlock,
   dynText as serverDynText,
@@ -29,6 +29,51 @@ describe("runtime", () => {
     await flushMicrotask();
 
     expect(root.textContent).toBe("2");
+  });
+
+  it("clones static templates on mount without using the fallback builder", () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    let fallbackCalls = 0;
+    mount(
+      () =>
+        h(
+          "section",
+          null,
+          tpl('<div class="hero"><strong>Hel</strong><span>Static</span></div>', () => {
+            fallbackCalls += 1;
+            return h("div", { class: "hero" }, h("strong", null, "Hel"), h("span", null, "Static"));
+          }),
+        ),
+      root,
+    );
+
+    expect(fallbackCalls).toBe(0);
+    expect(root.querySelector(".hero")?.textContent).toBe("HelStatic");
+  });
+
+  it("uses the fallback builder for templates during hydration", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<section><div class="hero"><strong>Hel</strong><span>Static</span></div></section>';
+    document.body.appendChild(root);
+
+    let fallbackCalls = 0;
+    hydrate(
+      () =>
+        h(
+          "section",
+          null,
+          tpl('<div class="hero"><strong>Hel</strong><span>Static</span></div>', () => {
+            fallbackCalls += 1;
+            return h("div", { class: "hero" }, h("strong", null, "Hel"), h("span", null, "Static"));
+          }),
+        ),
+      root,
+    );
+
+    expect(fallbackCalls).toBe(1);
+    expect(root.querySelector(".hero")?.textContent).toBe("HelStatic");
   });
 
   it("keeps textarea value in sync as a controlled property", async () => {
@@ -244,6 +289,43 @@ describe("runtime", () => {
 
     expect(root.querySelector(".open")).toBeNull();
     expect(root.querySelector(".closed")?.textContent).toBe("Beta");
+  });
+
+  it("disposes block-scoped effects when a branch is removed", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const visible = cell(true);
+    const count = cell(1);
+
+    mount(
+      () =>
+        h(
+          "section",
+          null,
+          dynBlock(() =>
+            get(visible)
+              ? h("p", { class: "value" }, dynText(() => get(count)))
+              : h("p", { class: "hidden" }, "off"),
+          ),
+        ),
+      root,
+    );
+
+    expect(count.subscribers.size).toBe(1);
+    expect(root.querySelector(".value")?.textContent).toBe("1");
+
+    set(visible, false);
+    await flushMicrotask();
+
+    expect(root.querySelector(".value")).toBeNull();
+    expect(count.subscribers.size).toBe(0);
+
+    set(count, 2);
+    await flushMicrotask();
+
+    expect(root.querySelector(".hidden")?.textContent).toBe("off");
+    expect(count.subscribers.size).toBe(0);
   });
 
   it("renders mapped array children and refreshes the list on updates", async () => {
@@ -544,5 +626,58 @@ describe("runtime", () => {
 
     expect(button?.textContent).toBe("Increment");
     expect(root.querySelector("p")?.textContent).toBe("Value: 1");
+  });
+
+  it("does not double-bind hydrated event listeners", () => {
+    const root = document.createElement("div");
+    const count = cell(0);
+
+    root.innerHTML = '<button>Increment</button>';
+    document.body.appendChild(root);
+
+    hydrate(() => h("button", { onClick: () => set(count, get(count) + 1) }, "Increment"), root);
+
+    const button = root.querySelector("button");
+    expect(button).not.toBeNull();
+
+    button?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    expect(get(count)).toBe(1);
+
+    button?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    expect(get(count)).toBe(2);
+  });
+
+  it("keeps branch event handlers working after block switches", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const visible = cell(true);
+    const count = cell(0);
+
+    mount(
+      () =>
+        h(
+          "section",
+          null,
+          dynBlock(() =>
+            get(visible)
+              ? h("button", { onClick: () => set(count, get(count) + 1) }, "Primary")
+              : h("button", { onClick: () => set(count, get(count) + 10) }, "Secondary"),
+          ),
+        ),
+      root,
+    );
+
+    let button = root.querySelector("button");
+    button?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    expect(get(count)).toBe(1);
+
+    set(visible, false);
+    await flushMicrotask();
+
+    button = root.querySelector("button");
+    expect(button?.textContent).toBe("Secondary");
+    button?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    expect(get(count)).toBe(11);
   });
 });

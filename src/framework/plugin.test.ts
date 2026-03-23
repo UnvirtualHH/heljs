@@ -56,12 +56,23 @@ describe("compiler plugin", () => {
     `);
 
     expect(output).toMatchInlineSnapshot(`
-      "import { cell as __cell, get as __get, h as __h, node as __node, dynText as __dynText } from "@hel/runtime";
+      "import { cell as __cell, get as __get, h as __h, node as __node, tpl as __tpl, dynText as __dynText } from "@hel/runtime";
       export function Banner() {const __cell_count_0 = __cell(
           0);
-        return __h("section", null, __node(() => __h("h1", null, "Static")), __node(() => __h("p", null, __dynText(() => __get(__cell_count_0)))));
+        return __h("section", null, __tpl("<h1>Static</h1>", () => __h("h1", null, "Static")), __node(() => __h("p", null, __dynText(() => __get(__cell_count_0)))));
       }"
     `);
+  });
+
+  it("uses template factories for fully static jsx subtrees", () => {
+    const output = transform(`
+      export function Banner() {
+        return <section><div class="hero"><strong>Hel</strong><span>Static</span></div></section>;
+      }
+    `);
+
+    expect(output).toContain('__tpl("<div class=\\"hero\\"><strong>Hel</strong><span>Static</span></div>"');
+    expect(output).not.toContain("__node(() => __h(\"div\"");
   });
 
   it("treats mapped jsx arrays as block dynamics instead of text dynamics", () => {

@@ -7,6 +7,12 @@ type KeyedList<T> = {
   render: (item: T, index: number) => unknown;
 };
 
+type TemplateFactory<T = unknown> = {
+  [TEMPLATE_FACTORY]: true;
+  html: string;
+  read: () => T;
+};
+
 type Renderable =
   | string
   | number
@@ -15,6 +21,7 @@ type Renderable =
   | undefined
   | Dynamic
   | KeyedList<any>
+  | TemplateFactory<any>
   | NodeFactory
   | Renderable[]
   | ServerElement
@@ -48,6 +55,7 @@ const BLOCK_END = "hs:block:end";
 const DYNAMIC = Symbol("hel.dynamic");
 const LIST = Symbol("hel.list");
 const NODE_FACTORY = Symbol("hel.node-factory");
+const TEMPLATE_FACTORY = Symbol("hel.template-factory");
 const VOID_TAGS = new Set([
   "area",
   "base",
@@ -98,6 +106,14 @@ export function node<T>(read: () => T): NodeFactory<T> {
   };
 }
 
+export function tpl<T>(html: string, read: () => T): TemplateFactory<T> {
+  return {
+    [TEMPLATE_FACTORY]: true,
+    html,
+    read,
+  };
+}
+
 function createDynamic<T>(kind: DynamicKind, read: () => T): Dynamic<T> {
   return {
     [DYNAMIC]: true,
@@ -141,6 +157,10 @@ function isDynamic(value: unknown): value is Dynamic {
 
 function isNodeFactory(value: unknown): value is NodeFactory {
   return typeof value === "object" && value !== null && NODE_FACTORY in value;
+}
+
+function isTemplateFactory(value: unknown): value is TemplateFactory {
+  return typeof value === "object" && value !== null && TEMPLATE_FACTORY in value;
 }
 
 function isKeyedList(value: unknown): value is KeyedList<unknown> {
@@ -240,6 +260,10 @@ function serializeProps(props: Record<string, unknown> | null): string {
 
 function serializeValue(value: unknown): string {
   if (isNodeFactory(value)) {
+    return serializeValue(value.read());
+  }
+
+  if (isTemplateFactory(value)) {
     return serializeValue(value.read());
   }
 

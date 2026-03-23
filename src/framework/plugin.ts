@@ -37,6 +37,7 @@ type UsedHelpers = {
   set: boolean;
   h: boolean;
   node: boolean;
+  tpl: boolean;
   dynText: boolean;
   dynAttr: boolean;
   dynBlock: boolean;
@@ -96,6 +97,7 @@ function createUsedHelpers(): UsedHelpers {
     set: false,
     h: false,
     node: false,
+    tpl: false,
     dynText: false,
     dynAttr: false,
     dynBlock: false,
@@ -135,6 +137,14 @@ function wrapBlockDynamic(expression: t.Expression, used: UsedHelpers): t.Expres
 function wrapNodeFactory(expression: t.Expression, used: UsedHelpers): t.Expression {
   used.node = true;
   return t.callExpression(t.identifier("__node"), [t.arrowFunctionExpression([], expression)]);
+}
+
+function wrapTemplateFactory(html: string, expression: t.Expression, used: UsedHelpers): t.Expression {
+  used.tpl = true;
+  return t.callExpression(t.identifier("__tpl"), [
+    t.stringLiteral(html),
+    t.arrowFunctionExpression([], expression),
+  ]);
 }
 
 function normalizeExpression(
@@ -482,6 +492,143 @@ function expressionProducesBlock(node: t.Expression, analysis?: ComponentAnalysi
   return false;
 }
 
+function normalizeStaticText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function escapeStaticHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function escapeStaticAttribute(value: string): string {
+  return escapeStaticHtml(value).replaceAll('"', "&quot;");
+}
+
+function staticAttributeValue(attribute: t.JSXAttribute): string | null {
+  if (!t.isJSXIdentifier(attribute.name)) {
+    return null;
+  }
+
+  const name = attribute.name.name;
+  if (EVENT_PROP.test(name)) {
+    return null;
+  }
+
+  if (attribute.value === null) {
+    return "";
+  }
+
+  if (t.isStringLiteral(attribute.value)) {
+    return escapeStaticAttribute(attribute.value.value);
+  }
+
+  if (!t.isJSXExpressionContainer(attribute.value) || t.isJSXEmptyExpression(attribute.value.expression)) {
+    return null;
+  }
+
+  const expression = attribute.value.expression;
+  if (t.isStringLiteral(expression)) {
+    return escapeStaticAttribute(expression.value);
+  }
+
+  if (t.isNumericLiteral(expression)) {
+    return String(expression.value);
+  }
+
+  if (t.isBooleanLiteral(expression)) {
+    return expression.value ? "" : null;
+  }
+
+  return null;
+}
+
+function staticJsxHtml(node: t.JSXElement | t.JSXFragment): string | null {
+  if (t.isJSXFragment(node)) {
+    const parts: string[] = [];
+
+    for (const child of node.children) {
+      const html = staticJsxChildHtml(child);
+      if (html === null) {
+        return null;
+      }
+      parts.push(html);
+    }
+
+    return parts.join("");
+  }
+
+  if (!t.isJSXIdentifier(node.openingElement.name) || isComponentName(node.openingElement.name.name)) {
+    return null;
+  }
+
+  const tag = node.openingElement.name.name;
+  const attrs: string[] = [];
+
+  for (const attribute of node.openingElement.attributes) {
+    if (!t.isJSXAttribute(attribute)) {
+      return null;
+    }
+
+    const value = staticAttributeValue(attribute);
+    if (value === null) {
+      return null;
+    }
+
+    const attrName = t.isJSXIdentifier(attribute.name) ? attribute.name.name : "";
+    attrs.push(value === "" ? ` ${attrName}=""` : ` ${attrName}="${value}"`);
+  }
+
+  const children: string[] = [];
+  for (const child of node.children) {
+    const html = staticJsxChildHtml(child);
+    if (html === null) {
+      return null;
+    }
+    children.push(html);
+  }
+
+  return `<${tag}${attrs.join("")}>${children.join("")}</${tag}>`;
+}
+
+function staticJsxChildHtml(
+  child: t.JSXText | t.JSXExpressionContainer | t.JSXElement | t.JSXFragment | t.JSXSpreadChild,
+): string | null {
+  if (t.isJSXText(child)) {
+    const normalized = normalizeStaticText(child.value);
+    return normalized.length > 0 ? escapeStaticHtml(normalized) : "";
+  }
+
+  if (t.isJSXElement(child) || t.isJSXFragment(child)) {
+    return staticJsxHtml(child);
+  }
+
+  if (t.isJSXSpreadChild(child)) {
+    return null;
+  }
+
+  if (!t.isJSXExpressionContainer(child) || t.isJSXEmptyExpression(child.expression)) {
+    return null;
+  }
+
+  const expression = child.expression;
+  if (t.isStringLiteral(expression)) {
+    return escapeStaticHtml(expression.value);
+  }
+
+  if (t.isNumericLiteral(expression)) {
+    return String(expression.value);
+  }
+
+  if (t.isBooleanLiteral(expression) || t.isNullLiteral(expression)) {
+    return "";
+  }
+
+  return null;
+}
+
 function buildJsxChildren(
   children: Array<t.JSXText | t.JSXExpressionContainer | t.JSXElement | t.JSXFragment | t.JSXSpreadChild>,
   used: UsedHelpers,
@@ -510,12 +657,16 @@ function buildJsxChildren(
     }
 
     if (t.isJSXElement(child)) {
-      output.push(wrapNodeFactory(buildJsxElement(child, used, analysis), used));
+      const built = buildJsxElement(child, used, analysis);
+      const html = staticJsxHtml(child);
+      output.push(html ? wrapTemplateFactory(html, built, used) : wrapNodeFactory(built, used));
       continue;
     }
 
     if (t.isJSXFragment(child)) {
-      output.push(wrapNodeFactory(buildJsxFragment(child, used, analysis), used));
+      const built = buildJsxFragment(child, used, analysis);
+      const html = staticJsxHtml(child);
+      output.push(html ? wrapTemplateFactory(html, built, used) : wrapNodeFactory(built, used));
       continue;
     }
 
@@ -875,6 +1026,7 @@ function injectRuntimeImport(ast: t.File, used: UsedHelpers): void {
     { imported: "set", local: "__set", enabled: used.set },
     { imported: "h", local: "__h", enabled: used.h },
     { imported: "node", local: "__node", enabled: used.node },
+    { imported: "tpl", local: "__tpl", enabled: used.tpl },
     { imported: "dynText", local: "__dynText", enabled: used.dynText },
     { imported: "dynAttr", local: "__dynAttr", enabled: used.dynAttr },
     { imported: "dynBlock", local: "__dynBlock", enabled: used.dynBlock },

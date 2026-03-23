@@ -46,10 +46,10 @@ Ziel: Reaktivitaet, DOM-Updates, SSR und Hydration muessen in den Kernfaellen de
   - prod: lokaler Fallback-Remount
 - [x] Claiming fuer Fragmente und Multi-Root-Komponenten haerten
 - [x] Boolean-/Property-/Attribute-Semantik vereinheitlichen
-- [ ] Event-Binding-Verhalten stabilisieren
+- [x] Event-Binding-Verhalten stabilisieren
   - keine doppelten Listener
   - keine verlorenen Listener nach Block-Wechseln
-- [ ] Cleanup und Lifecycle-Regeln definieren
+- [x] Cleanup und Lifecycle-Regeln definieren
   - wann Effects verschwinden
   - was bei entfernten Block-Slots passiert
 - [x] Reaktive Props durch Function-Components sauber definieren
@@ -125,7 +125,7 @@ Ziel: Nicht Solid-Level, aber klar besser als ein naiver DOM-Ansatz.
 
 ### Compiler
 
-- [ ] Statische Teilbaeume erkennen
+- [x] Statische Teilbaeume erkennen
 - [ ] Template-Cloning fuer statische Strukturen vorbereiten
 - [ ] Unnoetige `dyn*`-Wrapper weiter reduzieren
 - [ ] Closure-Allokationen im Output messen und senken

@@ -8,6 +8,7 @@ type ListEntry<T> = {
   item: T;
   key: string | number;
   node: Node;
+  scope: Scope;
 };
 
 type HydrationFrame = {
@@ -17,8 +18,20 @@ type HydrationFrame = {
   label: string;
 };
 
+type Scope = {
+  parent: Scope | null;
+  cleanups: Set<() => void>;
+  active: boolean;
+};
+
 type NodeFactory<T = unknown> = {
   [NODE_FACTORY]: true;
+  read: () => T;
+};
+
+type TemplateFactory<T = unknown> = {
+  [TEMPLATE_FACTORY]: true;
+  html: string;
   read: () => T;
 };
 
@@ -32,6 +45,7 @@ type KeyedList<T> = {
 const BLOCK_START = "hs:block:start";
 const BLOCK_END = "hs:block:end";
 const NODE_FACTORY = Symbol("hel.node-factory");
+const TEMPLATE_FACTORY = Symbol("hel.template-factory");
 const LIST = Symbol("hel.list");
 const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 
@@ -40,6 +54,9 @@ const queue = new Set<EffectRunner>();
 let scheduled = false;
 const hydrationStack: HydrationFrame[] = [];
 const hydratedRoots = new WeakSet<Element>();
+const eventBindings = new WeakMap<HTMLElement, Map<string, EventListener>>();
+const templateCache = new Map<string, HTMLTemplateElement>();
+let activeScope: Scope | null = null;
 
 function flushQueue(): void {
   scheduled = false;
@@ -69,6 +86,48 @@ function cleanup(runner: EffectRunner): void {
   }
 
   runner.deps.clear();
+}
+
+function createScope(): Scope {
+  return {
+    parent: activeScope,
+    cleanups: new Set<() => void>(),
+    active: true,
+  };
+}
+
+function onScopeCleanup(fn: () => void): void {
+  if (!activeScope || !activeScope.active) {
+    return;
+  }
+
+  activeScope.cleanups.add(fn);
+}
+
+function runWithScope<T>(scope: Scope, fn: () => T): T {
+  const previous = activeScope;
+  activeScope = scope;
+
+  try {
+    return fn();
+  } finally {
+    activeScope = previous;
+  }
+}
+
+function disposeScope(scope: Scope | null): void {
+  if (!scope || !scope.active) {
+    return;
+  }
+
+  scope.active = false;
+
+  const cleanups = Array.from(scope.cleanups);
+  scope.cleanups.clear();
+
+  for (const cleanup of cleanups.reverse()) {
+    cleanup();
+  }
 }
 
 function isHydrating(): boolean {
@@ -265,8 +324,9 @@ export function effect(fn: () => void): () => void {
 
   runner.deps = new Set<Set<EffectRunner>>();
   runner();
-
-  return () => cleanup(runner);
+  const dispose = () => cleanup(runner);
+  onScopeCleanup(dispose);
+  return dispose;
 }
 
 const DYNAMIC = Symbol("hel.dynamic");
@@ -280,6 +340,14 @@ export type Dynamic<T = unknown> = {
 export function node<T>(read: () => T): NodeFactory<T> {
   return {
     [NODE_FACTORY]: true,
+    read,
+  };
+}
+
+export function tpl<T>(html: string, read: () => T): TemplateFactory<T> {
+  return {
+    [TEMPLATE_FACTORY]: true,
+    html,
     read,
   };
 }
@@ -329,8 +397,28 @@ function isNodeFactory(value: unknown): value is NodeFactory {
   return typeof value === "object" && value !== null && NODE_FACTORY in value;
 }
 
+function isTemplateFactory(value: unknown): value is TemplateFactory {
+  return typeof value === "object" && value !== null && TEMPLATE_FACTORY in value;
+}
+
 function isKeyedList(value: unknown): value is KeyedList<unknown> {
   return typeof value === "object" && value !== null && LIST in value;
+}
+
+function cloneTemplate(html: string): Node {
+  let template = templateCache.get(html);
+  if (!template) {
+    template = document.createElement("template");
+    template.innerHTML = html;
+    templateCache.set(html, template);
+  }
+
+  const fragment = template.content.cloneNode(true) as DocumentFragment;
+  if (fragment.childNodes.length === 1) {
+    return fragment.firstChild!;
+  }
+
+  return fragment;
 }
 
 function resolveComponentPropValue(value: unknown): unknown {
@@ -478,6 +566,7 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
   let start = frame ? claimHydrationNode(parent, (node) => isCommentNode(node, BLOCK_START)) as Comment | null : null;
   let end: Comment | null = null;
   let currentNodes: Node[] = [];
+  let contentScope: Scope | null = null;
   let hydrated = false;
 
   if (start && frame) {
@@ -516,20 +605,24 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
 
   effect(() => {
     if (hydrated) {
+      disposeScope(contentScope);
+      contentScope = createScope();
       const blockFrame = openHydrationFrame(parent, "block", end!);
       if (blockFrame) {
         blockFrame.current = start!.nextSibling as ChildNode | null;
       }
-      const nextValue = read();
-      appendChild(parent, nextValue);
+      const nextValue = runWithScope(contentScope, () => read());
+      runWithScope(contentScope, () => appendChild(parent, nextValue));
       closeHydrationFrame(blockFrame);
       hydrated = false;
       currentNodes = collectNodesBetween(start!, end!);
       return;
     }
 
-    const nextValue = read();
-    const nextNodes = toNodeList(nextValue);
+    disposeScope(contentScope);
+    contentScope = createScope();
+    const nextValue = runWithScope(contentScope, () => read());
+    const nextNodes = runWithScope(contentScope, () => toNodeList(nextValue));
 
     for (const node of currentNodes) {
       if (node.parentNode === parent) {
@@ -602,6 +695,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
           item,
           key: binding.key(item, index),
           node: nodes[index],
+          scope: createScope(),
         }));
         hydrated = false;
         return;
@@ -633,15 +727,18 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
         continue;
       }
 
-      const node = readSingleRenderableNode(binding.render(item, index), "list()");
+      const scope = createScope();
+      const node = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
       if (previous?.node.parentNode === parent) {
         parent.replaceChild(node, previous.node);
+        disposeScope(previous.scope);
       }
 
       nextEntries.push({
         item,
         key,
         node,
+        scope,
       });
     }
 
@@ -649,6 +746,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
       if (entry.node.parentNode === parent) {
         parent.removeChild(entry.node);
       }
+      disposeScope(entry.scope);
     }
 
     for (const entry of nextEntries) {
@@ -691,6 +789,16 @@ function mountAttrSlot(element: HTMLElement, key: string, read: () => unknown): 
 function appendChild(parent: Node, value: unknown): void {
   if (isNodeFactory(value)) {
     appendChild(parent, value.read());
+    return;
+  }
+
+  if (isTemplateFactory(value)) {
+    if (isHydrating()) {
+      appendChild(parent, value.read());
+      return;
+    }
+
+    parent.appendChild(cloneTemplate(value.html));
     return;
   }
 
@@ -833,14 +941,35 @@ function shouldDeferProperty(element: HTMLElement, key: string): boolean {
   return element instanceof HTMLSelectElement && key === "value";
 }
 
+function bindEvent(element: HTMLElement, key: string, listener: EventListener): void {
+  let bindings = eventBindings.get(element);
+  if (!bindings) {
+    bindings = new Map<string, EventListener>();
+    eventBindings.set(element, bindings);
+  }
+
+  const eventName = key.slice(2).toLowerCase();
+  const previous = bindings.get(key);
+
+  if (previous === listener) {
+    return;
+  }
+
+  if (previous) {
+    element.removeEventListener(eventName, previous);
+  }
+
+  element.addEventListener(eventName, listener);
+  bindings.set(key, listener);
+}
+
 function applyProp(element: HTMLElement, key: string, value: unknown): void {
   if (key === "children") {
     return;
   }
 
   if (key.startsWith("on") && typeof value === "function") {
-    const eventName = key.slice(2).toLowerCase();
-    element.addEventListener(eventName, value as EventListener);
+    bindEvent(element, key, value as EventListener);
     return;
   }
 
