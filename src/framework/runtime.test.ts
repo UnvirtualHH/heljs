@@ -104,6 +104,39 @@ describe("runtime", () => {
     expect(Array.from(rows, (entry) => entry.textContent)).toEqual(["Row 1", "Row 2", "Row 3", "Row 4"]);
   });
 
+  it("hydrates prerendered mapped lists and updates them after state changes", async () => {
+    const root = document.createElement("div");
+    const count = cell(2);
+
+    root.innerHTML = renderToString(() =>
+      serverH(
+        "ul",
+        null,
+        serverDynBlock(() =>
+          Array.from({ length: 2 }, (_, index) =>
+            serverH("li", null, `Row `, serverDynText(() => index + 1)),
+          ),
+        ),
+      ),
+    );
+    document.body.appendChild(root);
+
+    const items = () => Array.from({ length: get(count) }, (_, index) => h("li", null, `Row ${index + 1}`));
+
+    hydrate(() => h("ul", null, dynBlock(() => items())), root);
+
+    let rows = root.querySelectorAll("li");
+    expect(rows).toHaveLength(2);
+    expect(Array.from(rows, (entry) => entry.textContent)).toEqual(["Row 1", "Row 2"]);
+
+    set(count, 4);
+    await flushMicrotask();
+
+    rows = root.querySelectorAll("li");
+    expect(rows).toHaveLength(4);
+    expect(Array.from(rows, (entry) => entry.textContent)).toEqual(["Row 1", "Row 2", "Row 3", "Row 4"]);
+  });
+
   it("falls back to a local remount when hydrated child structure mismatches", () => {
     const root = document.createElement("div");
     root.innerHTML = "<main><span>wrong</span><p>keep</p></main>";

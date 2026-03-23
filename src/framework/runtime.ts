@@ -4,6 +4,12 @@ type EffectRunner = (() => void) & {
 
 type DynamicKind = "text" | "attr" | "block";
 
+type ListEntry<T> = {
+  item: T;
+  key: string | number;
+  node: Node;
+};
+
 type HydrationFrame = {
   parent: Node;
   current: ChildNode | null;
@@ -16,9 +22,17 @@ type NodeFactory<T = unknown> = {
   read: () => T;
 };
 
+type KeyedList<T> = {
+  [LIST]: true;
+  read: () => T[];
+  key: (item: T, index: number) => string | number;
+  render: (item: T, index: number) => unknown;
+};
+
 const BLOCK_START = "hs:block:start";
 const BLOCK_END = "hs:block:end";
 const NODE_FACTORY = Symbol("hel.node-factory");
+const LIST = Symbol("hel.list");
 const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 
 let activeEffect: EffectRunner | null = null;
@@ -294,12 +308,29 @@ export function dyn<T>(read: () => T): Dynamic<T> {
   return dynBlock(read);
 }
 
+export function list<T>(
+  read: () => T[],
+  key: (item: T, index: number) => string | number,
+  render: (item: T, index: number) => unknown,
+): KeyedList<T> {
+  return {
+    [LIST]: true,
+    read,
+    key,
+    render,
+  };
+}
+
 function isDynamic(value: unknown): value is Dynamic {
   return typeof value === "object" && value !== null && DYNAMIC in value;
 }
 
 function isNodeFactory(value: unknown): value is NodeFactory {
   return typeof value === "object" && value !== null && NODE_FACTORY in value;
+}
+
+function isKeyedList(value: unknown): value is KeyedList<unknown> {
+  return typeof value === "object" && value !== null && LIST in value;
 }
 
 function normalizeTextValue(value: unknown): string {
@@ -353,6 +384,20 @@ function toRenderableNode(value: unknown): Node {
   }
 
   return fragment;
+}
+
+function readSingleRenderableNode(value: unknown, context: string): Node {
+  const nodes = toNodeList(value);
+
+  if (nodes.length === 1) {
+    return nodes[0];
+  }
+
+  if (IS_DEV) {
+    console.warn(`[hel] ${context} expects each item to render exactly one root node.`);
+  }
+
+  return toRenderableNode(value);
 }
 
 function mountStaticText(parent: Node, value: string): void {
@@ -438,13 +483,12 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
   }
 
   effect(() => {
-    const nextValue = read();
-
     if (hydrated) {
       const blockFrame = openHydrationFrame(parent, "block", end!);
       if (blockFrame) {
         blockFrame.current = start!.nextSibling as ChildNode | null;
       }
+      const nextValue = read();
       appendChild(parent, nextValue);
       closeHydrationFrame(blockFrame);
       hydrated = false;
@@ -452,6 +496,7 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
       return;
     }
 
+    const nextValue = read();
     const nextNodes = toNodeList(nextValue);
 
     for (const node of currentNodes) {
@@ -465,6 +510,116 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
     }
 
     currentNodes = nextNodes;
+  });
+}
+
+function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
+  const frame = currentHydrationFrame(parent);
+  let start = frame ? claimHydrationNode(parent, (node) => isCommentNode(node, BLOCK_START)) as Comment | null : null;
+  let end: Comment | null = null;
+  let currentEntries: Array<ListEntry<T>> = [];
+  let hydrated = false;
+
+  if (start && frame) {
+    let cursor = start.nextSibling;
+
+    while (cursor && !isCommentNode(cursor, BLOCK_END)) {
+      cursor = cursor.nextSibling;
+    }
+
+    if (isCommentNode(cursor, BLOCK_END)) {
+      end = cursor;
+      frame.current = end.nextSibling as ChildNode | null;
+      hydrated = true;
+    } else {
+      frame.current = start;
+      bailHydration(parent, `comment(${BLOCK_START}) ... comment(${BLOCK_END})`, cursor);
+      start = null;
+    }
+  }
+
+  if (!start) {
+    if (frame?.current) {
+      bailHydration(parent, `comment(${BLOCK_START})`);
+    }
+    start = document.createComment(BLOCK_START);
+    end = document.createComment(BLOCK_END);
+    parent.appendChild(start);
+    parent.appendChild(end);
+  } else if (!end) {
+    end = document.createComment(BLOCK_END);
+    parent.appendChild(end);
+  }
+
+  effect(() => {
+    if (hydrated) {
+      const listFrame = openHydrationFrame(parent, "list", end!);
+      if (listFrame) {
+        listFrame.current = start!.nextSibling as ChildNode | null;
+      }
+
+      const items = binding.read();
+      currentEntries = items.map((item, index) => ({
+        item,
+        key: binding.key(item, index),
+        node: readSingleRenderableNode(binding.render(item, index), "list()"),
+      }));
+
+      closeHydrationFrame(listFrame);
+      currentEntries = currentEntries.map((entry) => ({
+        ...entry,
+        node: entry.node.parentNode === parent ? entry.node : (collectNodesBetween(start!, end!)[currentEntries.indexOf(entry)] ?? entry.node),
+      }));
+      hydrated = false;
+      return;
+    }
+
+    const items = binding.read();
+    const previousByKey = new Map<string | number, ListEntry<T>>();
+
+    for (const entry of currentEntries) {
+      if (previousByKey.has(entry.key) && IS_DEV) {
+        console.warn(`[hel] Duplicate key "${String(entry.key)}" in keyed list.`);
+      }
+      previousByKey.set(entry.key, entry);
+    }
+
+    const nextEntries: Array<ListEntry<T>> = [];
+
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      const key = binding.key(item, index);
+      const previous = previousByKey.get(key);
+      previousByKey.delete(key);
+
+      if (previous && previous.item === item) {
+        nextEntries.push(previous);
+        continue;
+      }
+
+      const node = readSingleRenderableNode(binding.render(item, index), "list()");
+      if (previous?.node.parentNode === parent) {
+        parent.replaceChild(node, previous.node);
+      }
+
+      nextEntries.push({
+        item,
+        key,
+        node,
+      });
+    }
+
+    for (const entry of previousByKey.values()) {
+      if (entry.node.parentNode === parent) {
+        parent.removeChild(entry.node);
+      }
+    }
+
+    for (const entry of nextEntries) {
+      parent.insertBefore(entry.node, end!);
+    }
+
+    currentEntries = nextEntries;
   });
 }
 
@@ -500,6 +655,11 @@ function mountAttrSlot(element: HTMLElement, key: string, read: () => unknown): 
 function appendChild(parent: Node, value: unknown): void {
   if (isNodeFactory(value)) {
     appendChild(parent, value.read());
+    return;
+  }
+
+  if (isKeyedList(value)) {
+    mountListSlot(parent, value);
     return;
   }
 
