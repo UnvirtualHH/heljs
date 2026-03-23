@@ -1,5 +1,7 @@
 # Hel
 
+![Hel logo](public/hel-192.png)
+
 Compiler-first Prototyp fuer ein Framework ohne Virtual DOM.
 
 Ziel ist Solid-artige Fine-Grained-Reaktivitaet, aber mit normalem TypeScript im User-Code:
