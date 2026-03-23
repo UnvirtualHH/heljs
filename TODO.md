@@ -28,7 +28,7 @@ Ziel: Reaktivitaet, DOM-Updates, SSR und Hydration muessen in den Kernfaellen de
   - verschachtelte Closures
   - Schleifen und Branches
   - Default-Parameter und Rest-Parameter
-- [ ] Destructuring-Strategie festlegen
+- [x] Destructuring-Strategie festlegen
   - entweder sauber implementieren
   - oder explizit als Fehler mit klarer Compiler-Meldung blocken
 - [ ] Offizielle Escape-Hatches einfuehren
@@ -44,7 +44,7 @@ Ziel: Reaktivitaet, DOM-Updates, SSR und Hydration muessen in den Kernfaellen de
 - [x] Hydration-Mismatch-Erkennung einbauen
   - dev: sichtbare Warnung mit Pfadinfo
   - prod: lokaler Fallback-Remount
-- [ ] Claiming fuer Fragmente und Multi-Root-Komponenten haerten
+- [x] Claiming fuer Fragmente und Multi-Root-Komponenten haerten
 - [x] Boolean-/Property-/Attribute-Semantik vereinheitlichen
 - [ ] Event-Binding-Verhalten stabilisieren
   - keine doppelten Listener
@@ -52,6 +52,7 @@ Ziel: Reaktivitaet, DOM-Updates, SSR und Hydration muessen in den Kernfaellen de
 - [ ] Cleanup und Lifecycle-Regeln definieren
   - wann Effects verschwinden
   - was bei entfernten Block-Slots passiert
+- [x] Reaktive Props durch Function-Components sauber definieren
 
 ### SSR/Hydration
 

@@ -424,6 +424,90 @@ describe("runtime", () => {
     expect(Array.from(spans, (entry) => entry.textContent)).toEqual(["left", "right"]);
   });
 
+  it("hydrates function components with multiple roots without remounting them", () => {
+    const root = document.createElement("div");
+
+    function Pair(props: Record<string, unknown>) {
+      return frag(
+        h("span", { class: "left" }, "left"),
+        h("span", { class: "right" }, props.count),
+      );
+    }
+
+    root.innerHTML = '<div><span class="left">left</span><span class="right">0</span></div>';
+    document.body.appendChild(root);
+
+    hydrate(() => h("div", null, node(() => h(Pair, { count: 0 }))), root);
+
+    const spansBefore = root.querySelectorAll("span");
+    expect(spansBefore).toHaveLength(2);
+    expect(spansBefore[0]?.textContent).toBe("left");
+    expect(spansBefore[1]?.textContent).toBe("0");
+
+    const spansAfter = root.querySelectorAll("span");
+    expect(spansAfter).toHaveLength(2);
+    expect(spansAfter[0]).toBe(spansBefore[0]);
+    expect(spansAfter[1]).toBe(spansBefore[1]);
+  });
+
+  it("rerenders function components when reactive props change", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const count = cell(0);
+
+    function Pair(props: Record<string, unknown>) {
+      return frag(
+        h("span", { class: "left" }, "left"),
+        h("span", { class: "right" }, props.count),
+      );
+    }
+
+    mount(() => h("div", null, node(() => h(Pair, { count: dynAttr(() => get(count)) }))), root);
+
+    let spans = root.querySelectorAll("span");
+    expect(spans).toHaveLength(2);
+    expect(spans[1]?.textContent).toBe("0");
+
+    set(count, 2);
+    await flushMicrotask();
+
+    spans = root.querySelectorAll("span");
+    expect(spans).toHaveLength(2);
+    expect(spans[1]?.textContent).toBe("2");
+  });
+
+  it("hydrates a fragment root without replacing the existing dom", async () => {
+    const root = document.createElement("div");
+    const count = cell(0);
+
+    root.innerHTML = '<span class="left">left</span><span class="right">0</span>';
+    document.body.appendChild(root);
+
+    hydrate(
+      () =>
+        frag(
+          h("span", { class: "left" }, "left"),
+          h("span", { class: "right" }, dynText(() => get(count))),
+        ),
+      root,
+    );
+
+    const spansBefore = root.querySelectorAll("span");
+    expect(spansBefore).toHaveLength(2);
+    expect(spansBefore[0]?.textContent).toBe("left");
+    expect(spansBefore[1]?.textContent).toBe("0");
+
+    set(count, 3);
+    await flushMicrotask();
+
+    const spansAfter = root.querySelectorAll("span");
+    expect(spansAfter).toHaveLength(2);
+    expect(spansAfter[0]).toBe(spansBefore[0]);
+    expect(spansAfter[1]).toBe(spansBefore[1]);
+    expect(spansAfter[1]?.textContent).toBe("3");
+  });
+
   it("hydrates prerendered html and keeps events working", async () => {
     const root = document.createElement("div");
     const count = cell(0);

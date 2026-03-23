@@ -69,6 +69,8 @@ type ComponentTransformResult = {
   changed: boolean;
 };
 
+type ComponentName = string;
+
 const RUNTIME_SOURCE = "@hel/runtime";
 const COMPONENT_NAME = /^[A-Z]/;
 const EVENT_PROP = /^on[A-Z]/;
@@ -590,9 +592,23 @@ function buildJsxFragment(fragment: t.JSXFragment, used: UsedHelpers, analysis?:
   return t.callExpression(t.identifier("__frag"), buildJsxChildren(fragment.children, used, analysis));
 }
 
+function formatLocation(node: t.Node): string {
+  if (!node.loc?.start) {
+    return "";
+  }
+
+  return `:${node.loc.start.line}:${node.loc.start.column + 1}`;
+}
+
+function compilerError(id: string, componentName: ComponentName, node: t.Node, message: string): never {
+  throw new Error(`[hel] ${id}${formatLocation(node)} in ${componentName}: ${message}`);
+}
+
 function transformComponent(
   functionPath: NodePath<t.FunctionDeclaration | t.FunctionExpression | t.ArrowFunctionExpression>,
   used: UsedHelpers,
+  id: string,
+  componentName: ComponentName,
 ): ComponentTransformResult {
   const bodyPath = functionPath.get("body");
   if (!bodyPath.isBlockStatement()) {
@@ -616,6 +632,15 @@ function transformComponent(
     }
 
     for (const declaration of statementPath.node.declarations) {
+      if (!t.isIdentifier(declaration.id)) {
+        compilerError(
+          id,
+          componentName,
+          declaration.id,
+          "reactive let destructuring is not supported yet. Use a plain identifier and destructure inside a const or helper.",
+        );
+      }
+
       if (!t.isIdentifier(declaration.id)) {
         continue;
       }
@@ -933,7 +958,7 @@ export function helMagicPlugin(): Plugin {
             return;
           }
 
-          const result = transformComponent(path, used);
+          const result = transformComponent(path, used, id, path.node.id.name);
           componentAnalyses.set(path.node, result.analysis);
           if (result.changed) {
             changed = true;
@@ -954,7 +979,7 @@ export function helMagicPlugin(): Plugin {
             return;
           }
 
-          const result = transformComponent(initPath, used);
+          const result = transformComponent(initPath, used, id, path.node.id.name);
           componentAnalyses.set(initPath.node, result.analysis);
           if (result.changed) {
             changed = true;

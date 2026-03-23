@@ -96,6 +96,8 @@ Nicht unterstuetzt in diesem Stand:
 - Destructuring bei reaktiven `let`-Deklarationen
 - tiefe Objekt-/Array-Reaktivitaet per Proxy
 
+Bei reaktivem `let`-Destructuring wirft der Compiler jetzt bewusst einen klaren Fehler, statt still kaputten Code zu erzeugen.
+
 ### 3. Normale Helper-Funktionen funktionieren
 
 Du kannst normale lokale Funktionen oder `const`-Arrow-Functions schreiben. Wenn sie reaktive `let`-Bindings lesen, erkennt der Compiler das und verdrahtet den Aufruf in einen reaktiven Slot.

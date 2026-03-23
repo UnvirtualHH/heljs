@@ -333,6 +333,38 @@ function isKeyedList(value: unknown): value is KeyedList<unknown> {
   return typeof value === "object" && value !== null && LIST in value;
 }
 
+function resolveComponentPropValue(value: unknown): unknown {
+  if (isDynamic(value)) {
+    return value.read();
+  }
+
+  return value;
+}
+
+function hasReactiveComponentProps(props: Record<string, unknown> | null): boolean {
+  if (!props) {
+    return false;
+  }
+
+  return Object.values(props).some((value) => isDynamic(value));
+}
+
+function resolveComponentProps(
+  props: Record<string, unknown> | null,
+  children: unknown[],
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {
+    ...(props ?? {}),
+    children,
+  };
+
+  for (const [key, value] of Object.entries(resolved)) {
+    resolved[key] = resolveComponentPropValue(value);
+  }
+
+  return resolved;
+}
+
 function normalizeTextValue(value: unknown): string {
   if (value == null || value === false || value === true) {
     return "";
@@ -839,9 +871,15 @@ export function h(
   tag: string | ((props: Record<string, unknown>) => unknown),
   props: Record<string, unknown> | null,
   ...children: unknown[]
-): Node {
+): unknown {
   if (typeof tag === "function") {
-    return toRenderableNode(tag({ ...(props ?? {}), children }));
+    const renderComponent = () => toRenderableNode(tag(resolveComponentProps(props, children)));
+
+    if (hasReactiveComponentProps(props)) {
+      return dynBlock(renderComponent);
+    }
+
+    return renderComponent();
   }
 
   const parent = currentHydrationFrame()?.parent ?? document;
@@ -878,13 +916,14 @@ export function frag(...children: unknown[]): DocumentFragment {
   return fragment;
 }
 
-export function mount(factory: () => Node, target: Element): void {
+export function mount(factory: () => unknown, target: Element): void {
   hydrationStack.length = 0;
   hydratedRoots.add(target);
-  target.replaceChildren(factory());
+  target.replaceChildren();
+  appendChild(target, factory());
 }
 
-export function hydrate(factory: () => Node, target: Element): void {
+export function hydrate(factory: () => unknown, target: Element): void {
   if (hydratedRoots.has(target)) {
     mount(factory, target);
     return;
@@ -899,10 +938,7 @@ export function hydrate(factory: () => Node, target: Element): void {
   });
 
   try {
-    const result = factory();
-    if (result.parentNode !== target) {
-      target.replaceChildren(result);
-    }
+    appendChild(target, factory());
     const rootFrame = hydrationStack[0];
     if (rootFrame) {
       skipIgnorableNodes(rootFrame);

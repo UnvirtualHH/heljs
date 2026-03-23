@@ -22,6 +22,15 @@ function transform(code: string): string {
   return result.code;
 }
 
+function transformError(code: string): Error | null {
+  try {
+    transform(code);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+}
+
 describe("compiler plugin", () => {
   it("tracks helper functions that read reactive let bindings", () => {
     const output = transform(`
@@ -66,5 +75,19 @@ describe("compiler plugin", () => {
 
     expect(output).toContain("__dynBlock(() => rows().map((entry) => entry))");
     expect(output).not.toContain("__dynText(() => rows().map((entry) => entry))");
+  });
+
+  it("fails loudly for reactive let destructuring in component scope", () => {
+    const error = transformError(`
+      export function Counter() {
+        let { count } = { count: 0 };
+        return <p>{count}</p>;
+      }
+    `);
+
+    expect(error).not.toBeNull();
+    expect(error?.message).toContain("reactive let destructuring is not supported yet");
+    expect(error?.message).toContain("Component.tsx");
+    expect(error?.message).toContain("Counter");
   });
 });
