@@ -32,6 +32,18 @@ export function App() {
     return step === 1 ? "Precise" : "Burst";
   }
 
+  function recentFrames() {
+    return Array.from({ length: Math.min(4, count + 1) }, (_, index) => {
+      const frame = count + index * step;
+      return {
+        id: `${frame}-${index}`,
+        label: `Frame ${index + 1}`,
+        value: frame,
+        state: frame % 2 === 0 ? "stable" : "volatile",
+      };
+    });
+  }
+
   const ratio = () => `${count}:${step}`;
   const summary = () => `${count} clicks wired through plain functions.`;
 
@@ -80,6 +92,18 @@ export function App() {
               </tr>
             </tbody>
           </table>
+          <div class="list-block">
+            <strong>Recent frames</strong>
+            <ul class="frame-list">
+              {recentFrames().map((entry) => (
+                <li class="frame-row" data-state={entry.state}>
+                  <span class="frame-label">{entry.label}</span>
+                  <span class="frame-value">{entry.value}</span>
+                  <span class="frame-state">{entry.state}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
           {renderStatus()}
         </div>
       ) : (

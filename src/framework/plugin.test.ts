@@ -54,4 +54,17 @@ describe("compiler plugin", () => {
       }"
     `);
   });
+
+  it("treats mapped jsx arrays as block dynamics instead of text dynamics", () => {
+    const output = transform(`
+      export function List() {
+        let count = 2;
+        const rows = () => Array.from({ length: count }, (_, index) => <li>{index}</li>);
+        return <ul>{rows().map((entry) => entry)}</ul>;
+      }
+    `);
+
+    expect(output).toContain("__dynBlock(() => rows().map((entry) => entry))");
+    expect(output).not.toContain("__dynText(() => rows().map((entry) => entry))");
+  });
 });

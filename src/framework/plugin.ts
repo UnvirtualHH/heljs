@@ -244,12 +244,6 @@ function functionContainsBlockSyntax(path: LocalFunctionPath): boolean {
   let found = false;
 
   path.traverse({
-    Function(innerPath: NodePath<t.Function>) {
-      if (innerPath !== path) {
-        innerPath.skip();
-      }
-    },
-
     JSXElement() {
       found = true;
     },
@@ -419,6 +413,14 @@ function expressionProducesBlock(node: t.Expression, analysis?: ComponentAnalysi
   while (stack.length > 0) {
     const current = stack.pop()!;
 
+    if (t.isJSXElement(current) || t.isJSXFragment(current)) {
+      return true;
+    }
+
+    if (t.isArrayExpression(current)) {
+      return true;
+    }
+
     if (t.isCallExpression(current)) {
       const callee = current.callee;
 
@@ -428,6 +430,30 @@ function expressionProducesBlock(node: t.Expression, analysis?: ComponentAnalysi
 
       const calleeName = getLooseIdentifierName(callee);
       if (calleeName && analysis.blockFunctionNames.has(calleeName)) {
+        return true;
+      }
+
+      if (
+        t.isMemberExpression(callee) &&
+        t.isIdentifier(callee.property, { name: "map" }) &&
+        current.arguments.some((argument) => {
+          if (!t.isArrowFunctionExpression(argument) && !t.isFunctionExpression(argument)) {
+            return false;
+          }
+
+          if (t.isBlockStatement(argument.body)) {
+            return argument.body.body.some((statement) => {
+              if (!t.isReturnStatement(statement) || !statement.argument) {
+                return false;
+              }
+
+              return expressionProducesBlock(statement.argument, analysis);
+            });
+          }
+
+          return expressionProducesBlock(argument.body, analysis);
+        })
+      ) {
         return true;
       }
     }

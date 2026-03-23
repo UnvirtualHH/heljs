@@ -7,6 +7,7 @@ type DynamicKind = "text" | "attr" | "block";
 type HydrationFrame = {
   parent: Node;
   current: ChildNode | null;
+  boundary: ChildNode | null;
   label: string;
 };
 
@@ -112,6 +113,7 @@ function warnHydrationMismatch(expected: string, actual: Node | null): void {
 function skipIgnorableNodes(frame: HydrationFrame): void {
   while (
     frame.current &&
+    frame.current !== frame.boundary &&
     frame.current.nodeType === Node.TEXT_NODE &&
     (frame.current as Text).data.trim() === ""
   ) {
@@ -127,7 +129,7 @@ function claimHydrationNode(parent: Node, predicate: (node: ChildNode) => boolea
 
   skipIgnorableNodes(frame);
   const node = frame.current;
-  if (!node || !predicate(node)) {
+  if (!node || node === frame.boundary || !predicate(node)) {
     return null;
   }
 
@@ -145,7 +147,7 @@ function bailHydration(parent: Node, expected: string, actual?: Node | null): vo
   clearRemainingHydrationNodes(frame);
 }
 
-function openHydrationFrame(parent: Node, label: string): HydrationFrame | null {
+function openHydrationFrame(parent: Node, label: string, boundary: ChildNode | null = null): HydrationFrame | null {
   if (!isHydrating()) {
     return null;
   }
@@ -153,6 +155,7 @@ function openHydrationFrame(parent: Node, label: string): HydrationFrame | null 
   const frame: HydrationFrame = {
     parent,
     current: parent.firstChild,
+    boundary,
     label,
   };
   hydrationStack.push(frame);
@@ -174,7 +177,7 @@ function closeHydrationFrame(frame: HydrationFrame | null): void {
 }
 
 function clearRemainingHydrationNodes(frame: HydrationFrame): void {
-  while (frame.current) {
+  while (frame.current && frame.current !== frame.boundary) {
     const node = frame.current;
     frame.current = node.nextSibling as ChildNode | null;
     frame.parent.removeChild(node);
@@ -438,6 +441,12 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
     const nextValue = read();
 
     if (hydrated) {
+      const blockFrame = openHydrationFrame(parent, "block", end!);
+      if (blockFrame) {
+        blockFrame.current = start!.nextSibling as ChildNode | null;
+      }
+      appendChild(parent, nextValue);
+      closeHydrationFrame(blockFrame);
       hydrated = false;
       currentNodes = collectNodesBetween(start!, end!);
       return;
@@ -670,6 +679,7 @@ export function hydrate(factory: () => Node, target: Element): void {
   hydrationStack.push({
     parent: target,
     current: target.firstChild,
+    boundary: null,
     label: "#app",
   });
 

@@ -175,6 +175,57 @@ button:disabled {
   border-bottom: 0;
 }
 
+.list-block {
+  margin-top: 1rem;
+}
+
+.frame-list {
+  list-style: none;
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.frame-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #d4e0d5;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.frame-label {
+  font-weight: 700;
+  color: #24433d;
+}
+
+.frame-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #173941;
+}
+
+.frame-state {
+  justify-self: end;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: #ebf4ec;
+  color: #486256;
+}
+
+.frame-row[data-state="volatile"] .frame-state {
+  background: #f8e4d5;
+  color: #8c4a18;
+}
+
 .panel.muted {
   color: #4e5f57;
   background: #f2f5f2;

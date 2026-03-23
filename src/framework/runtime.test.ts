@@ -84,6 +84,26 @@ describe("runtime", () => {
     expect(root.querySelector(".closed")?.textContent).toBe("Beta");
   });
 
+  it("renders mapped array children and refreshes the list on updates", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const count = cell(2);
+    const items = () => Array.from({ length: get(count) }, (_, index) => h("li", null, `Row ${index + 1}`));
+
+    mount(() => h("ul", null, dynBlock(() => items())), root);
+
+    expect(root.querySelectorAll("li")).toHaveLength(2);
+    expect(root.textContent).toContain("Row 2");
+
+    set(count, 4);
+    await flushMicrotask();
+
+    const rows = root.querySelectorAll("li");
+    expect(rows).toHaveLength(4);
+    expect(Array.from(rows, (entry) => entry.textContent)).toEqual(["Row 1", "Row 2", "Row 3", "Row 4"]);
+  });
+
   it("falls back to a local remount when hydrated child structure mismatches", () => {
     const root = document.createElement("div");
     root.innerHTML = "<main><span>wrong</span><p>keep</p></main>";
@@ -155,6 +175,6 @@ describe("runtime", () => {
     await flushMicrotask();
 
     expect(button?.textContent).toBe("Increment");
-    expect(root.querySelector("p")?.textContent).toBe("Value: 0");
+    expect(root.querySelector("p")?.textContent).toBe("Value: 1");
   });
 });

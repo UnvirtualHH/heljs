@@ -228,7 +228,7 @@ Ziel: Von "coolem Prototyp" zu "damit kann man Dinge bauen".
 
 - [ ] Devtools-Strategie skizzieren
 - [ ] Source-Maps und Fehlermeldungen fuer Compiler-Ausgaben haerten
-- [ ] Beispiel-App bauen, die mehr als einen Counter zeigt
+- [x] Beispiel-App bauen, die mehr als einen Counter zeigt
 
 ### Gate fuer Phase 5
 
