@@ -45,7 +45,7 @@ Ziel: Reaktivitaet, DOM-Updates, SSR und Hydration muessen in den Kernfaellen de
   - dev: sichtbare Warnung mit Pfadinfo
   - prod: lokaler Fallback-Remount
 - [ ] Claiming fuer Fragmente und Multi-Root-Komponenten haerten
-- [ ] Boolean-/Property-/Attribute-Semantik vereinheitlichen
+- [x] Boolean-/Property-/Attribute-Semantik vereinheitlichen
 - [ ] Event-Binding-Verhalten stabilisieren
   - keine doppelten Listener
   - keine verlorenen Listener nach Block-Wechseln
@@ -210,7 +210,7 @@ Ziel: Von "coolem Prototyp" zu "damit kann man Dinge bauen".
   - [x] Helper
   - Control-Flow-Komponente
 - [ ] bessere Fragment-Unterstuetzung ueber alle Pfade
-- [ ] kontrollierte Form-Elemente testen und haerten
+- [x] kontrollierte Form-Elemente testen und haerten
   - `input`
   - `textarea`
   - `select`

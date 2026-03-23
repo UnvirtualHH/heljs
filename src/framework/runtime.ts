@@ -700,9 +700,27 @@ function appendChild(parent: Node, value: unknown): void {
 
 function matchesHydratedProperty(element: HTMLElement, key: string, value: unknown): boolean {
   const normalizedKey = key === "className" ? "class" : key;
+  const isDomProperty =
+    normalizedKey in element &&
+    !normalizedKey.startsWith("data-") &&
+    !normalizedKey.startsWith("aria-");
 
   if (normalizedKey === "class") {
     return element.className === normalizeTextValue(value);
+  }
+
+  if (isDomProperty) {
+    const current = (element as unknown as Record<string, unknown>)[normalizedKey];
+
+    if (typeof current === "boolean") {
+      return current === Boolean(value);
+    }
+
+    if (value == null) {
+      return current === "";
+    }
+
+    return Object.is(current, value);
   }
 
   if (value == null || value === false) {
@@ -713,19 +731,15 @@ function matchesHydratedProperty(element: HTMLElement, key: string, value: unkno
     return element.hasAttribute(normalizedKey);
   }
 
-  if (
-    normalizedKey in element &&
-    !normalizedKey.startsWith("data-") &&
-    !normalizedKey.startsWith("aria-")
-  ) {
-    return Object.is((element as unknown as Record<string, unknown>)[normalizedKey], value);
-  }
-
   return element.getAttribute(normalizedKey) === String(value);
 }
 
 function writeProperty(element: HTMLElement, key: string, value: unknown): void {
   const normalizedKey = key === "className" ? "class" : key;
+  const isDomProperty =
+    normalizedKey in element &&
+    !normalizedKey.startsWith("data-") &&
+    !normalizedKey.startsWith("aria-");
 
   if (normalizedKey === "class") {
     if (value == null || value === false) {
@@ -742,17 +756,36 @@ function writeProperty(element: HTMLElement, key: string, value: unknown): void 
     return;
   }
 
-  if (value == null || value === false) {
-    element.removeAttribute(normalizedKey);
+  if (isDomProperty) {
+    const target = element as unknown as Record<string, unknown>;
+    const current = target[normalizedKey];
+
+    if (typeof current === "boolean") {
+      target[normalizedKey] = Boolean(value);
+
+      if (value) {
+        element.setAttribute(normalizedKey, "");
+      } else {
+        element.removeAttribute(normalizedKey);
+      }
+      return;
+    }
+
+    if (value == null) {
+      target[normalizedKey] = "";
+      element.removeAttribute(normalizedKey);
+      return;
+    }
+
+    target[normalizedKey] = value;
+    if (typeof value === "string" || typeof value === "number") {
+      element.setAttribute(normalizedKey, String(value));
+    }
     return;
   }
 
-  if (
-    normalizedKey in element &&
-    !normalizedKey.startsWith("data-") &&
-    !normalizedKey.startsWith("aria-")
-  ) {
-    (element as unknown as Record<string, unknown>)[normalizedKey] = value;
+  if (value == null || value === false) {
+    element.removeAttribute(normalizedKey);
     return;
   }
 
@@ -764,25 +797,42 @@ function writeProperty(element: HTMLElement, key: string, value: unknown): void 
   element.setAttribute(normalizedKey, String(value));
 }
 
-function applyProps(element: HTMLElement, props: Record<string, unknown>): void {
-  for (const [key, value] of Object.entries(props)) {
-    if (key === "children") {
-      continue;
-    }
+function shouldDeferProperty(element: HTMLElement, key: string): boolean {
+  return element instanceof HTMLSelectElement && key === "value";
+}
 
-    if (key.startsWith("on") && typeof value === "function") {
-      const eventName = key.slice(2).toLowerCase();
-      element.addEventListener(eventName, value as EventListener);
-      continue;
-    }
-
-    if (isDynamic(value)) {
-      mountAttrSlot(element, key, value.read);
-      continue;
-    }
-
-    writeProperty(element, key, value);
+function applyProp(element: HTMLElement, key: string, value: unknown): void {
+  if (key === "children") {
+    return;
   }
+
+  if (key.startsWith("on") && typeof value === "function") {
+    const eventName = key.slice(2).toLowerCase();
+    element.addEventListener(eventName, value as EventListener);
+    return;
+  }
+
+  if (isDynamic(value)) {
+    mountAttrSlot(element, key, value.read);
+    return;
+  }
+
+  writeProperty(element, key, value);
+}
+
+function applyProps(element: HTMLElement, props: Record<string, unknown>): Array<() => void> {
+  const deferred: Array<() => void> = [];
+
+  for (const [key, value] of Object.entries(props)) {
+    if (shouldDeferProperty(element, key)) {
+      deferred.push(() => applyProp(element, key, value));
+      continue;
+    }
+
+    applyProp(element, key, value);
+  }
+
+  return deferred;
 }
 
 export function h(
@@ -804,13 +854,14 @@ export function h(
   }
   const element = claimed ?? document.createElement(tag);
   const frame = openHydrationFrame(element, `<${tag}>`);
-
-  if (props) {
-    applyProps(element, props);
-  }
+  const deferredProps = props ? applyProps(element, props) : [];
 
   for (const child of children) {
     appendChild(element, child);
+  }
+
+  for (const run of deferredProps) {
+    run();
   }
 
   closeHydrationFrame(frame);

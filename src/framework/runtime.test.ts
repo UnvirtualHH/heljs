@@ -31,6 +31,127 @@ describe("runtime", () => {
     expect(root.textContent).toBe("2");
   });
 
+  it("keeps textarea value in sync as a controlled property", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const text = cell("alpha");
+    mount(() => h("textarea", { value: dynAttr(() => get(text)) }), root);
+
+    const textarea = root.querySelector("textarea");
+    expect(textarea?.value).toBe("alpha");
+
+    set(text, "beta");
+    await flushMicrotask();
+
+    expect(textarea?.value).toBe("beta");
+
+    set(text, "");
+    await flushMicrotask();
+
+    expect(textarea?.value).toBe("");
+  });
+
+  it("keeps text input value in sync as a controlled property", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const text = cell("alpha");
+    mount(() => h("input", { type: "text", value: dynAttr(() => get(text)) }), root);
+
+    const input = root.querySelector("input");
+    expect(input?.value).toBe("alpha");
+
+    set(text, "beta");
+    await flushMicrotask();
+
+    expect(input?.value).toBe("beta");
+
+    set(text, "");
+    await flushMicrotask();
+
+    expect(input?.value).toBe("");
+  });
+
+  it("keeps select value in sync as a controlled property", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const mode = cell("b");
+    mount(
+      () =>
+        h(
+          "select",
+          { value: dynAttr(() => get(mode)) },
+          h("option", { value: "a" }, "Alpha"),
+          h("option", { value: "b" }, "Beta"),
+          h("option", { value: "c" }, "Gamma"),
+        ),
+      root,
+    );
+
+    const select = root.querySelector("select");
+    expect(select?.value).toBe("b");
+
+    set(mode, "c");
+    await flushMicrotask();
+
+    expect(select?.value).toBe("c");
+  });
+
+  it("keeps radio checked state in sync as a controlled property", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const selected = cell("b");
+    mount(
+      () =>
+        h(
+          "div",
+          null,
+          h("input", {
+            type: "radio",
+            name: "mode",
+            value: "a",
+            checked: dynAttr(() => get(selected) === "a"),
+          }),
+          h("input", {
+            type: "radio",
+            name: "mode",
+            value: "b",
+            checked: dynAttr(() => get(selected) === "b"),
+          }),
+        ),
+      root,
+    );
+
+    const radios = root.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    expect(radios[0]?.checked).toBe(false);
+    expect(radios[1]?.checked).toBe(true);
+
+    set(selected, "a");
+    await flushMicrotask();
+
+    expect(radios[0]?.checked).toBe(true);
+    expect(radios[1]?.checked).toBe(false);
+  });
+
+  it("keeps checkbox checked state in sync as a controlled property", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const checked = cell(true);
+    mount(() => h("input", { type: "checkbox", checked: dynAttr(() => get(checked)) }), root);
+
+    const checkbox = root.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(checkbox?.checked).toBe(true);
+
+    set(checked, false);
+    await flushMicrotask();
+
+    expect(checkbox?.checked).toBe(false);
+  });
+
   it("patches mismatched hydrated attributes immediately", () => {
     const root = document.createElement("div");
     root.innerHTML = '<button disabled="">Reset</button>';
@@ -42,6 +163,46 @@ describe("runtime", () => {
     const button = root.querySelector("button");
     expect(button).not.toBeNull();
     expect(button?.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("patches mismatched hydrated form properties immediately", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div>
+        <textarea>wrong</textarea>
+        <select><option value="a">Alpha</option><option value="b" selected="">Beta</option></select>
+        <input type="radio" name="mode" value="a">
+        <input type="radio" name="mode" value="b" checked="">
+      </div>
+    `;
+    document.body.appendChild(root);
+
+    hydrate(
+      () =>
+        h(
+          "div",
+          null,
+          h("textarea", { value: dynAttr(() => "right") }),
+          h(
+            "select",
+            { value: dynAttr(() => "a") },
+            h("option", { value: "a" }, "Alpha"),
+            h("option", { value: "b" }, "Beta"),
+          ),
+          h("input", { type: "radio", name: "mode", value: "a", checked: dynAttr(() => true) }),
+          h("input", { type: "radio", name: "mode", value: "b", checked: dynAttr(() => false) }),
+        ),
+      root,
+    );
+
+    const textarea = root.querySelector("textarea");
+    const select = root.querySelector("select");
+    const radios = root.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+
+    expect(textarea?.value).toBe("right");
+    expect(select?.value).toBe("a");
+    expect(radios[0]?.checked).toBe(true);
+    expect(radios[1]?.checked).toBe(false);
   });
 
   it("updates block slots without replacing the surrounding tree", async () => {
