@@ -18,7 +18,7 @@ export default defineConfig(({ isSsrBuild }) => ({
   resolve: {
     alias: [
       {
-        find: "@hel/runtime",
+        find: "hel/runtime",
         replacement: path.resolve(
           __dirname,
           isSsrBuild ? "src/framework/server/index.ts" : "src/framework/runtime/index.ts",

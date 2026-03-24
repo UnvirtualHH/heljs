@@ -1,6 +1,7 @@
 import { createStaticRouter, type StaticRouter } from "./router";
 import {
   attr,
+  branch,
   cell,
   component,
   dyn,
@@ -21,6 +22,7 @@ import {
 } from "./core";
 export {
   attr,
+  branch,
   cell,
   component,
   dyn,

@@ -4,6 +4,7 @@ import {
   effect,
   get,
   isAttrBinding,
+  isBranchBinding,
   isDynamic,
   isKeyedList,
   isNodeFactory,
@@ -11,6 +12,7 @@ import {
   isTemplateFactory,
   isTextBinding,
   runWithScope,
+  untrack,
   type Cell,
   type Scope,
 } from "./core";
@@ -164,6 +166,11 @@ function collectNodes(value: unknown, out: Node[]): void {
     }
 
     collectNodes(cloneTemplate(value.html), out);
+    return;
+  }
+
+  if (isBranchBinding(value)) {
+    collectNodes(value.when() ? value.consequent() : value.alternate(), out);
     return;
   }
 
@@ -588,6 +595,132 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
   });
 }
 
+type BranchEntry = {
+  nodes: Node[];
+  scope: Scope;
+};
+
+function mountBranchSlot(
+  parent: Node,
+  binding: {
+    when: () => unknown;
+    consequent: () => unknown;
+    alternate: () => unknown;
+  },
+): void {
+  const frame = currentHydrationFrame(parent);
+  let start = frame ? claimHydrationNode(parent, (node) => isCommentNode(node, BLOCK_START)) as Comment | null : null;
+  let end: Comment | null = null;
+  let activeKind: "consequent" | "alternate" | null = null;
+  let activeNodes: Node[] = [];
+  const branches: Partial<Record<"consequent" | "alternate", BranchEntry>> = {};
+  let hydrated = false;
+
+  onScopeCleanup(() => {
+    for (const entry of Object.values(branches)) {
+      disposeScope(entry?.scope ?? null);
+    }
+  });
+
+  if (start && frame) {
+    activeNodes = [];
+    let cursor = start.nextSibling;
+
+    while (cursor && !isCommentNode(cursor, BLOCK_END)) {
+      activeNodes.push(cursor);
+      cursor = cursor.nextSibling;
+    }
+
+    if (isCommentNode(cursor, BLOCK_END)) {
+      end = cursor;
+      frame.current = end.nextSibling as ChildNode | null;
+      hydrated = true;
+    } else {
+      frame.current = start;
+      bailHydration(parent, `comment(${BLOCK_START}) ... comment(${BLOCK_END})`, cursor);
+      start = null;
+      activeNodes = [];
+    }
+  }
+
+  if (!start) {
+    if (frame?.current) {
+      bailHydration(parent, `comment(${BLOCK_START})`);
+    }
+    start = document.createComment(BLOCK_START);
+    end = document.createComment(BLOCK_END);
+    appendNode(parent, start);
+    appendNode(parent, end);
+  } else if (!end) {
+    end = document.createComment(BLOCK_END);
+    appendNode(parent, end);
+  }
+
+  const materializeBranch = (kind: "consequent" | "alternate"): BranchEntry => {
+    const cached = branches[kind];
+    if (cached) {
+      return cached;
+    }
+
+    const scope = createScope();
+    const entry: BranchEntry = {
+      nodes: [],
+      scope,
+    };
+    branches[kind] = entry;
+
+    const read = kind === "consequent" ? binding.consequent : binding.alternate;
+    entry.nodes = runWithScope(scope, () => untrack(() => toNodeList(read())));
+    return entry;
+  };
+
+  effect(() => {
+    const nextKind = binding.when() ? "consequent" : "alternate";
+
+    if (hydrated) {
+      const scope = createScope();
+      const read = nextKind === "consequent" ? binding.consequent : binding.alternate;
+      const blockFrame = openHydrationFrame(parent, "branch", end!);
+      if (blockFrame) {
+        blockFrame.current = start!.nextSibling as ChildNode | null;
+      }
+
+      runWithScope(scope, () => untrack(() => appendChild(parent, read())));
+      closeHydrationFrame(blockFrame);
+
+      branches[nextKind] = {
+        nodes: collectNodesBetween(start!, end!),
+        scope,
+      };
+      activeKind = nextKind;
+      activeNodes = branches[nextKind]!.nodes;
+      hydrated = false;
+      return;
+    }
+
+    if (activeKind === nextKind) {
+      return;
+    }
+
+    const nextEntry = materializeBranch(nextKind);
+
+    if (
+      activeNodes.length === 1 &&
+      nextEntry.nodes.length === 1 &&
+      activeNodes[0]!.parentNode === parent
+    ) {
+      replaceNode(parent, nextEntry.nodes[0]!, activeNodes[0]!);
+      activeKind = nextKind;
+      activeNodes = nextEntry.nodes;
+      return;
+    }
+
+    replaceNodesBetween(parent, start!, end!, nextEntry.nodes, activeNodes.length);
+    activeKind = nextKind;
+    activeNodes = nextEntry.nodes;
+  });
+}
+
 function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
   const frame = currentHydrationFrame(parent);
   let start = frame ? claimHydrationNode(parent, (node) => isCommentNode(node, BLOCK_START)) as Comment | null : null;
@@ -881,6 +1014,11 @@ export function appendChild(parent: Node, value: unknown): void {
     }
 
     appendNode(parent, cloneTemplate(value.html));
+    return;
+  }
+
+  if (isBranchBinding(value)) {
+    mountBranchSlot(parent, value);
     return;
   }
 

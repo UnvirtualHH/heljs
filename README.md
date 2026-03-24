@@ -29,7 +29,7 @@ Die aktive Struktur ist jetzt fachlich getrennt:
 - [src/framework/package](C:/projects/hellscript/codex%20version/src/framework/package)
   - Paket-Entrypoints fuer externe Projekte
 
-Die flachen Dateien direkt unter `src/framework` existieren nur noch als Facades fuer stabile Imports.
+Die flachen Dateien direkt unter `src/framework` sind nur noch Legacy-Facades fuer Kompatibilitaet. Die aktive Implementierung lebt ausschliesslich in den Unterordnern oben.
 
 Aktive Einstiegspunkte im Framework-Code sind:
 
@@ -40,7 +40,7 @@ Aktive Einstiegspunkte im Framework-Code sind:
 - [src/framework/package/server.ts](C:/projects/hellscript/codex%20version/src/framework/package/server.ts)
 - [src/framework/package/vite.ts](C:/projects/hellscript/codex%20version/src/framework/package/vite.ts)
 
-`shared.ts` und `react-bench-modules.d.ts` bleiben bewusst flach, weil sie moduluebergreifend gebraucht werden.
+Nur [shared.ts](C:/projects/hellscript/codex%20version/src/framework/shared.ts) und [react-bench-modules.d.ts](C:/projects/hellscript/codex%20version/src/framework/react-bench-modules.d.ts) bleiben bewusst flach, weil sie moduluebergreifend gebraucht werden.
 
 ## Starten
 
@@ -104,6 +104,12 @@ import { mount, h } from "hel";
 import { renderToString } from "hel/server";
 import { helMagicPlugin } from "hel/vite";
 ```
+
+Ein verifizierter externer Consumer liegt jetzt auch direkt im Repo:
+
+- [starter](C:/projects/hellscript/codex%20version/starter)
+
+Der Starter wird bewusst als eigenes kleines Projekt gebaut und typgeprueft, statt nur gegen interne Source-Aliases zu laufen.
 
 Wichtig:
 
@@ -275,7 +281,7 @@ Das ist aktuell die **unkeyd** Listen-Variante. Sie ist okay fuer einfache Faell
 Wenn du stabile Keys und DOM-Wiederverwendung bei Reorder willst, nutze die explizite `list(...)`-API:
 
 ```tsx
-import { list } from "@hel/runtime";
+import { list } from "hel/runtime";
 
 <ul>
   {list(
@@ -300,7 +306,7 @@ Pragmatisch heisst das:
 - optional `For` als Control-Flow-Helper ueber beiden Stilen
 
 ```tsx
-import { For } from "@hel/runtime";
+import { For } from "hel/runtime";
 
 <ul>
   <For each={todos} key={(todo) => todo.id}>
@@ -322,11 +328,17 @@ Ohne `key` rendert `For` einfach ueber `map(...)`. Mit `key` nutzt es intern die
 Fuer Branches gibt es optional auch `Show`:
 
 ```tsx
-import { Show } from "@hel/runtime";
+import { Show } from "hel/runtime";
 
 <Show when={visible} fallback={<p>Hidden</p>}>
   <section>Visible</section>
 </Show>
+```
+
+Normale Ternaries in JSX bleiben ebenfalls der Standard:
+
+```tsx
+{visible ? <Panel /> : <Empty />}
 ```
 
 ### 7. Form-Inputs und Todos
@@ -360,7 +372,7 @@ Ein tiefer offizieller Store mit eigener Setter-API wie `setTodos(i, "done", tru
 Fuer Arrays und Objekte gibt es jetzt zusaetzlich einen kleinen Proxy-Store:
 
 ```tsx
-import { store } from "@hel/runtime";
+import { store } from "hel/runtime";
 
 const todos = store([
   { title: "Ship Hel", done: false },
@@ -385,7 +397,7 @@ Der Compiler erkennt `store(...)`-Reads in JSX und lokalen Helper-Funktionen als
 Der aktuelle Router ist bewusst klein:
 
 ```tsx
-import { createRouter } from "@hel/runtime";
+import { createRouter } from "hel/runtime";
 
 const router = createRouter([
   { path: "/", view: () => <Home /> },
@@ -561,7 +573,7 @@ User-Code:
 Interne Richtung:
 
 ```ts
-__dynBlock(() => __get(__cell_visible_0) ? __h(Panel, null) : __h(Empty, null))
+__branch(() => __get(__cell_visible_0), () => __h(Panel, null), () => __h(Empty, null))
 ```
 
 Runtime-Semantik:
@@ -580,7 +592,7 @@ Kurz gesagt:
 | `count = ...`, `count++` | `set(cell, ...)` |
 | `{count}` in JSX | `dynText(() => get(cell))` plus interner `effect(...)` |
 | `disabled={count === 0}` | `dynAttr(() => ...)` plus interner `effect(...)` |
-| `{visible ? <A/> : <B/>}` | `dynBlock(() => ...)` plus interner `effect(...)` |
+| `{visible ? <A/> : <B/>}` | spezialisierter `branch(...)`-Slot plus interner `effect(...)` |
 | `const helper = () => count * 2` | normaler Helper, der bei Aufruf `get(cell)` liest |
 | `memo(() => count * 2)` | aktuell **kein direktes Gegenstueck** |
 
@@ -610,6 +622,7 @@ Der aktuelle Stand achtet bereits auf ein paar wichtige Dinge:
 - Text-Slots patchen nur Text-Nodes
 - Attr-Slots patchen nur das jeweilige Attribut/Property
 - Nur echte Strukturwechsel laufen ueber Block-Slots
+- Conditional-Toggles laufen im Hot Path ueber spezialisierte Branch-Slots statt generischem `dynBlock(...)`
 - keyed `list(...)` kann DOM-Nodes bei Reorder wiederverwenden
 - Kein Virtual DOM
 
@@ -630,12 +643,13 @@ Was noch fehlt:
 
 ## Relevante Dateien
 
-- `src/framework/plugin.ts`: AST-Transform fuer Komponenten, `let`, Helper-Analyse und JSX-Slots
-- `src/framework/runtime.ts`: Public Runtime-API und DOM-Entry-Punkte
-- `src/framework/runtime-*.ts`: aufgeteilte Runtime fuer Core, DOM, Patching, Slots, Router und Hydration
-- `src/framework/server.ts`: Public SSR-API
-- `src/framework/server-*.ts`: aufgeteilter Server-Renderer und SSR-Router
-- `src/framework/package-*.ts`: Paket-Entrypoints fuer Runtime, SSR und Vite-Plugin
+- `src/framework/compiler/plugin.ts`: AST-Transform fuer Komponenten, `let`, Helper-Analyse und JSX-Slots
+- `src/framework/compiler/metrics.ts`: Compiler-Metriken fuer Transform-Ausgaben
+- `src/framework/runtime/index.ts`: Public Runtime-API und DOM-Entry-Punkte
+- `src/framework/runtime/*`: aufgeteilte Runtime fuer Core, DOM, Patching, Slots, Router und Hydration
+- `src/framework/server/index.ts`: Public SSR-API
+- `src/framework/server/*`: aufgeteilter Server-Renderer und SSR-Router
+- `src/framework/package/*`: Paket-Entrypoints fuer Runtime, SSR und Vite-Plugin
 - `scripts/build-package.mjs`: JS-Build fuer die veroeffentlichbaren Paketartefakte
 - `tsconfig.package.json`: Declaration-Build fuer die Paket-Typen
 - `src/demo/App.tsx`: Demo-App mit Router, Store und Todo-Workspace

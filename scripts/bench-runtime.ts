@@ -1,7 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { writeFile } from "node:fs/promises";
 import { Window } from "happy-dom";
-import { cell, dynBlock, get, h, list, mount, resetRuntimeStats, set, text } from "../src/framework/runtime/index.ts";
+import { branch, cell, get, h, list, mount, resetRuntimeStats, set, text } from "../src/framework/runtime/index.ts";
 
 type BenchCase = {
   name: string;
@@ -476,18 +476,19 @@ function createCases(): BenchCase[] {
             h(
               "section",
               null,
-              dynBlock(() =>
-                get(visible)
-                  ? h(
-                      "ul",
-                      null,
-                      list(
-                        () => get(items),
-                        (item) => item.id,
-                        (item) => h("li", null, item.label),
-                      ),
-                    )
-                  : h("p", null, "hidden"),
+              branch(
+                () => get(visible),
+                () =>
+                  h(
+                    "ul",
+                    null,
+                    list(
+                      () => get(items),
+                      (item) => item.id,
+                      (item) => h("li", null, item.label),
+                    ),
+                  ),
+                () => h("p", null, "hidden"),
               ),
             ),
           root,

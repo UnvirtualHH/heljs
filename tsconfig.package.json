@@ -11,6 +11,6 @@
     "src/framework/package/runtime.ts",
     "src/framework/package/server.ts",
     "src/framework/package/vite.ts",
-    "src/framework/package/jsx.d.ts"
+    "src/framework/package/jsx.ts"
   ]
 }

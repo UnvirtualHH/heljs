@@ -3,6 +3,7 @@ export type DynamicKind = "text" | "attr" | "block";
 export const BLOCK_START = "hs:block:start";
 export const BLOCK_END = "hs:block:end";
 export const DYNAMIC = Symbol("hel.dynamic");
+export const BRANCH = Symbol("hel.branch");
 export const LIST = Symbol("hel.list");
 export const NODE_FACTORY = Symbol("hel.node-factory");
 export const TEXT_BINDING = Symbol("hel.text-binding");
@@ -44,6 +45,13 @@ export type Dynamic<T = unknown> = {
   read: () => T;
 };
 
+export type BranchBinding<T = unknown> = {
+  [BRANCH]: true;
+  when: () => unknown;
+  consequent: () => T;
+  alternate: () => T;
+};
+
 export type ForProps<T> = {
   each: T[];
   key?: (item: T, index: number) => string | number;
@@ -81,6 +89,10 @@ export type RouterOptions = {
 
 export function isDynamic(value: unknown): value is Dynamic {
   return typeof value === "object" && value !== null && DYNAMIC in value;
+}
+
+export function isBranchBinding(value: unknown): value is BranchBinding {
+  return typeof value === "object" && value !== null && BRANCH in value;
 }
 
 export function isNodeFactory(value: unknown): value is NodeFactory {

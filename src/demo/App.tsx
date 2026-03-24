@@ -1,4 +1,4 @@
-import { createRouter, store } from "@hel/runtime";
+import { createRouter, store } from "hel/runtime";
 import { readInitialState, STORAGE_KEY, createId, todayLabel } from "./data";
 import { AccentBadges } from "./components/AccentBadges";
 import { AboutPage } from "./pages/AboutPage";

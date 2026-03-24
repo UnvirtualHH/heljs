@@ -56,7 +56,7 @@ describe("compiler plugin", () => {
     `);
 
     expect(output).toMatchInlineSnapshot(`
-      "import { cell as __cell, get as __get, component as __component, h as __h, node as __node, text as __text, tpl as __tpl } from "@hel/runtime";
+      "import { cell as __cell, get as __get, component as __component, h as __h, node as __node, text as __text, tpl as __tpl } from "hel/runtime";
       export function Banner() {const __cell_count_0 = __cell(
           0);
         return __h("section", null, __tpl("<h1>Static</h1>", () => __h("h1", null, "Static")), __node(() => __h("p", null, __text(__cell_count_0))));
@@ -121,6 +121,17 @@ describe("compiler plugin", () => {
     expect(output).not.toContain("__dynText(() => rows().map((entry) => entry))");
   });
 
+  it("emits specialized branch slots for reactive conditional block expressions", () => {
+    const output = transform(`
+      export function Toggle(props) {
+        return <section>{props.visible ? <ul><li>Open</li></ul> : <p>Closed</p>}</section>;
+      }
+    `);
+
+    expect(output).toContain("__branch(() => props.visible");
+    expect(output).not.toContain("__dynBlock(() => props.visible ?");
+  });
+
   it("fails loudly for reactive let destructuring in component scope", () => {
     const error = transformError(`
       export function Counter() {
@@ -174,7 +185,7 @@ describe("compiler plugin", () => {
 
   it("treats store reads in jsx as reactive dependencies", () => {
     const output = transform(`
-      import { store } from "@hel/runtime";
+      import { store } from "hel/runtime";
       export function Counter() {
         const state = store({ count: 0 });
         return <p>{state.count}</p>;
@@ -186,7 +197,7 @@ describe("compiler plugin", () => {
 
   it("tracks helper functions that read from store bindings", () => {
     const output = transform(`
-      import { store } from "@hel/runtime";
+      import { store } from "hel/runtime";
       export function Counter() {
         const state = store({ count: 0 });
         function label() {

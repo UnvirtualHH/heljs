@@ -1,4 +1,4 @@
-import { hydrate, mount } from "@hel/runtime";
+import { hydrate, mount } from "hel/runtime";
 import { App } from "./App";
 import "./styles.css";
 

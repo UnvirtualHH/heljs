@@ -1,3 +1,3 @@
-/// <reference path="./jsx.d.ts" />
+import "./jsx";
 
 export * from "../runtime/index";

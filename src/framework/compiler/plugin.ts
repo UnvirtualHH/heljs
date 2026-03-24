@@ -40,6 +40,7 @@ type UsedHelpers = {
   node: boolean;
   text: boolean;
   attr: boolean;
+  branch: boolean;
   tpl: boolean;
   dynText: boolean;
   dynAttr: boolean;
@@ -77,7 +78,7 @@ type ComponentTransformResult = {
 
 type ComponentName = string;
 
-const RUNTIME_SOURCE = "@hel/runtime";
+const RUNTIME_SOURCE = "hel/runtime";
 const COMPONENT_NAME = /^[A-Z]/;
 const EVENT_PROP = /^on[A-Z]/;
 const BINARY_ASSIGNMENTS = new Set([
@@ -105,6 +106,7 @@ function createUsedHelpers(): UsedHelpers {
     node: false,
     text: false,
     attr: false,
+    branch: false,
     tpl: false,
     dynText: false,
     dynAttr: false,
@@ -160,6 +162,15 @@ function wrapAttrDynamic(expression: t.Expression, used: UsedHelpers): t.Express
 function wrapBlockDynamic(expression: t.Expression, used: UsedHelpers): t.Expression {
   used.dynBlock = true;
   return t.callExpression(t.identifier("__dynBlock"), [t.arrowFunctionExpression([], expression)]);
+}
+
+function wrapBranchDynamic(expression: t.ConditionalExpression, used: UsedHelpers): t.Expression {
+  used.branch = true;
+  return t.callExpression(t.identifier("__branch"), [
+    t.arrowFunctionExpression([], expression.test),
+    t.arrowFunctionExpression([], expression.consequent),
+    t.arrowFunctionExpression([], expression.alternate),
+  ]);
 }
 
 function wrapNodeFactory(expression: t.Expression, used: UsedHelpers): t.Expression {
@@ -727,7 +738,11 @@ function buildJsxChildren(
         continue;
       }
 
-      output.push(expressionProducesBlock(normalized, analysis) ? wrapBlockDynamic(normalized, used) : wrapTextDynamic(normalized, used));
+      if (expressionProducesBlock(normalized, analysis)) {
+        output.push(t.isConditionalExpression(normalized) ? wrapBranchDynamic(normalized, used) : wrapBlockDynamic(normalized, used));
+      } else {
+        output.push(wrapTextDynamic(normalized, used));
+      }
     }
   }
 
@@ -1118,6 +1133,7 @@ function injectRuntimeImport(ast: t.File, used: UsedHelpers): void {
     { imported: "node", local: "__node", enabled: used.node },
     { imported: "text", local: "__text", enabled: used.text },
     { imported: "attr", local: "__attr", enabled: used.attr },
+    { imported: "branch", local: "__branch", enabled: used.branch },
     { imported: "tpl", local: "__tpl", enabled: used.tpl },
     { imported: "dynText", local: "__dynText", enabled: used.dynText },
     { imported: "dynAttr", local: "__dynAttr", enabled: used.dynAttr },

@@ -1,5 +1,6 @@
 import {
   attr,
+  branch,
   cell,
   component,
   createScope,
@@ -36,6 +37,7 @@ import {
 } from "./core";
 export {
   attr,
+  branch,
   cell,
   component,
   dyn,

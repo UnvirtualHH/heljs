@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRouter, dynBlock, For, h, list, node, renderToString, Show } from "./index";
+import { branch, createRouter, dynBlock, For, h, list, node, renderToString, Show } from "./index";
 
 describe("server renderer", () => {
   it("renders block markers for dynamic regions", () => {
@@ -14,6 +14,24 @@ describe("server renderer", () => {
 
     expect(html).toMatchInlineSnapshot(
       "\"<main><h1>Hel</h1><!--hs:block:start--><p>Ready</p><!--hs:block:end--></main>\"",
+    );
+  });
+
+  it("renders retained branch slots with the same block markers used by hydration", () => {
+    const html = renderToString(() =>
+      h(
+        "main",
+        null,
+        branch(
+          () => true,
+          () => h("ul", null, h("li", null, "Alpha")),
+          () => h("p", null, "hidden"),
+        ),
+      ),
+    );
+
+    expect(html).toMatchInlineSnapshot(
+      "\"<main><!--hs:block:start--><ul><li>Alpha</li></ul><!--hs:block:end--></main>\"",
     );
   });
 

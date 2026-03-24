@@ -4,26 +4,26 @@
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/package/runtime.js",
-  "types": "./dist/package/package-runtime.d.ts",
+  "types": "./dist/package/package/runtime.d.ts",
   "files": [
     "dist/package",
     "README.md"
   ],
   "exports": {
     ".": {
-      "types": "./dist/package/package-runtime.d.ts",
+      "types": "./dist/package/package/runtime.d.ts",
       "import": "./dist/package/runtime.js"
     },
     "./runtime": {
-      "types": "./dist/package/package-runtime.d.ts",
+      "types": "./dist/package/package/runtime.d.ts",
       "import": "./dist/package/runtime.js"
     },
     "./server": {
-      "types": "./dist/package/package-server.d.ts",
+      "types": "./dist/package/package/server.d.ts",
       "import": "./dist/package/server.js"
     },
     "./vite": {
-      "types": "./dist/package/package-vite.d.ts",
+      "types": "./dist/package/package/vite.d.ts",
       "import": "./dist/package/vite.js"
     },
     "./package.json": "./package.json"

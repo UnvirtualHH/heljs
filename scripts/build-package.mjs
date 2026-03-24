@@ -7,8 +7,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const outdir = path.join(root, "dist", "package");
 
-await rm(outdir, { recursive: true, force: true });
 await mkdir(outdir, { recursive: true });
+await rm(path.join(outdir, "runtime.js"), { force: true });
+await rm(path.join(outdir, "runtime.js.map"), { force: true });
+await rm(path.join(outdir, "server.js"), { force: true });
+await rm(path.join(outdir, "server.js.map"), { force: true });
+await rm(path.join(outdir, "vite.js"), { force: true });
+await rm(path.join(outdir, "vite.js.map"), { force: true });
+await rm(path.join(outdir, "chunks"), { recursive: true, force: true });
 
 await build({
   absWorkingDir: root,

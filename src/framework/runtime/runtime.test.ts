@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { attr, cell, createRouter, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, store, text, tpl } from "./index";
+import { attr, branch, cell, createRouter, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, store, text, tpl } from "./index";
 import {
+  branch as serverBranch,
   createRouter as createServerRouter,
   dynBlock as serverDynBlock,
   dynText as serverDynText,
@@ -319,6 +320,53 @@ describe("runtime", () => {
     set(visible, true);
     await flushMicrotask();
 
+    expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Updated"]);
+  });
+
+  it("keeps branch slots stable and reuses retained list branches", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const visible = cell(true);
+    const items = cell([{ id: 1, label: "Alpha" }]);
+
+    mount(
+      () =>
+        h(
+          "section",
+          null,
+          branch(
+            () => get(visible),
+            () =>
+              h(
+                "ul",
+                null,
+                list(
+                  () => get(items),
+                  (item) => item.id,
+                  (item) => h("li", null, item.label),
+                ),
+              ),
+            () => h("p", null, "hidden"),
+          ),
+        ),
+      root,
+    );
+
+    const listBefore = root.querySelector("ul");
+    expect(listBefore).not.toBeNull();
+
+    set(visible, false);
+    await flushMicrotask();
+    expect(root.querySelector("p")?.textContent).toBe("hidden");
+
+    set(items, [{ id: 1, label: "Updated" }]);
+    await flushMicrotask();
+
+    set(visible, true);
+    await flushMicrotask();
+
+    expect(root.querySelector("ul")).toBe(listBefore);
     expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Updated"]);
   });
 
@@ -1490,6 +1538,75 @@ describe("runtime", () => {
 
     expect(button?.textContent).toBe("Increment");
     expect(root.querySelector("p")?.textContent).toBe("Value: 1");
+  });
+
+  it("hydrates retained branch slots and switches them without remounting the list branch", async () => {
+    window.history.replaceState(null, "", "/");
+
+    const root = document.createElement("div");
+    const visible = cell(true);
+    const items = cell([{ id: 1, label: "Alpha" }]);
+
+    root.innerHTML = renderToString(() =>
+      serverH(
+        "section",
+        null,
+        serverBranch(
+          () => true,
+          () =>
+            serverH(
+              "ul",
+              null,
+              serverList(
+                () => [{ id: 1, label: "Alpha" }],
+                (item) => item.id,
+                (item) => serverH("li", null, item.label),
+              ),
+            ),
+          () => serverH("p", null, "hidden"),
+        ),
+      ),
+    );
+    document.body.appendChild(root);
+
+    hydrate(
+      () =>
+        h(
+          "section",
+          null,
+          branch(
+            () => get(visible),
+            () =>
+              h(
+                "ul",
+                null,
+                list(
+                  () => get(items),
+                  (item) => item.id,
+                  (item) => h("li", null, item.label),
+                ),
+              ),
+            () => h("p", null, "hidden"),
+          ),
+        ),
+      root,
+    );
+
+    const listBefore = root.querySelector("ul");
+    expect(listBefore).not.toBeNull();
+
+    set(visible, false);
+    await flushMicrotask();
+    expect(root.querySelector("p")?.textContent).toBe("hidden");
+
+    set(items, [{ id: 1, label: "Updated" }]);
+    await flushMicrotask();
+
+    set(visible, true);
+    await flushMicrotask();
+
+    expect(root.querySelector("ul")).toBe(listBefore);
+    expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Updated"]);
   });
 
   it("hydrates prerendered router markup and updates params and query after navigation", async () => {

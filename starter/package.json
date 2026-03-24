@@ -1,0 +1,14 @@
+{
+  "name": "hel-starter",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "node ../node_modules/vite/bin/vite.js",
+    "build": "node ../node_modules/vite/bin/vite.js build",
+    "typecheck": "node ../node_modules/typescript/bin/tsc --noEmit"
+  },
+  "dependencies": {
+    "hel": "file:.."
+  }
+}

@@ -1,6 +1,7 @@
 import {
   get,
   isAttrBinding,
+  isBranchBinding,
   isDynamic,
   isKeyedList,
   isNodeFactory,
@@ -45,6 +46,7 @@ export type Renderable =
   | boolean
   | null
   | undefined
+  | import("../shared").BranchBinding<any>
   | import("../shared").Dynamic
   | import("../shared").KeyedList<any>
   | import("../shared").TextBinding<any>
@@ -164,6 +166,10 @@ function serializeValue(value: unknown): string {
 
   if (isTemplateFactory(value)) {
     return serializeValue(value.read());
+  }
+
+  if (isBranchBinding(value)) {
+    return `<!--${BLOCK_START}-->${serializeValue(value.when() ? value.consequent() : value.alternate())}<!--${BLOCK_END}-->`;
   }
 
   if (isDynamic(value)) {

@@ -1,5 +1,7 @@
 import {
   ATTR_BINDING,
+  BRANCH,
+  type BranchBinding,
   COMPONENT_REACTIVE_PROPS,
   DYNAMIC,
   LIST,
@@ -16,6 +18,7 @@ import {
   type TemplateFactory,
   type TextBinding,
   isAttrBinding,
+  isBranchBinding,
   isDynamic,
   isNodeFactory,
   isTemplateFactory,
@@ -105,6 +108,19 @@ export function dyn<T>(read: () => T): Dynamic<T> {
   return dynBlock(read);
 }
 
+export function branch<T>(
+  when: () => unknown,
+  consequent: () => T,
+  alternate: () => T,
+): BranchBinding<T> {
+  return {
+    [BRANCH]: true,
+    when,
+    consequent,
+    alternate,
+  };
+}
+
 export function list<T>(
   read: () => T[],
   key: (item: T, index: number) => string | number,
@@ -184,6 +200,7 @@ export function component<T extends (...args: any[]) => any>(fn: T): T {
 
 export {
   isAttrBinding,
+  isBranchBinding,
   isDynamic,
   isKeyedList,
   isNodeFactory,

@@ -123,9 +123,9 @@ Ziel: Das Framework darf nicht mehr nur manuell verifiziert werden.
   - `server/`
   - `package/`
 - [ ] Flache Legacy-Facades spaeter physisch entfernen, sobald keine Windows-Dateisperren mehr im Weg stehen
-- [ ] Public Entry Points bewusst finalisieren
-  - welche Root-Dateien bleiben dauerhaft
-  - welche nur noch temporäre Kompatibilitaets-Facades sind
+- [x] Public Entry Points bewusst finalisieren
+  - aktive Einstiegspunkte liegen jetzt in `compiler/`, `runtime/`, `server/`, `package/`
+  - flache Root-Dateien unter `src/framework` sind nur noch Legacy-Facades
 
 ### Gate fuer Phase 2
 
@@ -158,6 +158,7 @@ Ziel: Nicht Solid-Level, aber klar besser als ein naiver DOM-Ansatz.
   - [x] keyed Listen bei stabilem Order-Update ohne unnötige Re-Inserts platzieren
   - [x] keyed Listen bei gleicher Struktur in-place patchen statt Root-Replace
   - [x] allgemeiner Block-Fast-Path fuer paarweise patchbare Node-Listen
+  - [x] Conditional-Branches ueber spezialisierten Branch-Slot statt generischem dynBlock(...) fahren
 - [ ] Internes Batch-Modell haerten
   - [x] redundante Re-Schedules derselben Effects im selben Tick koaleszieren
 - [ ] Subscription- und Effect-Overhead messen
@@ -290,7 +291,7 @@ Ziel: Das Ding muss veroeffentlichbar und konsumierbar sein.
 
 - [x] Vite-Plugin oeffentlich konsumierbar machen
 - [ ] Minimalbeispiel fuer SSR-Integration bereitstellen
-- [ ] Templates / Starter erzeugen
+- [x] Templates / Starter erzeugen
 
 ### Browser und Plattformen
 
@@ -306,7 +307,7 @@ Ziel: Das Ding muss veroeffentlichbar und konsumierbar sein.
 
 ### Gate fuer Phase 6
 
-- [ ] Framework kann als Paket installiert und in neuem Projekt genutzt werden
+- [x] Framework kann als Paket installiert und in neuem Projekt genutzt werden
 - [ ] Release-Prozess ist reproduzierbar
 - [ ] Support-Matrix ist dokumentiert
 
