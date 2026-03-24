@@ -238,6 +238,90 @@ describe("runtime", () => {
     expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Alpha"]);
   });
 
+  it("reuses the previous list branch when toggling a block off and on again", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const visible = cell(true);
+    const items = cell([{ id: 1, label: "Alpha" }]);
+
+    mount(
+      () =>
+        h(
+          "section",
+          null,
+          dynBlock(() =>
+            get(visible)
+              ? h(
+                  "ul",
+                  null,
+                  list(
+                    () => get(items),
+                    (item) => item.id,
+                    (item) => h("li", null, item.label),
+                  ),
+                )
+              : h("p", null, "hidden"),
+          ),
+        ),
+      root,
+    );
+
+    const listBefore = root.querySelector("ul");
+    expect(listBefore).not.toBeNull();
+
+    set(visible, false);
+    await flushMicrotask();
+    expect(root.querySelector("p")?.textContent).toBe("hidden");
+
+    set(visible, true);
+    await flushMicrotask();
+
+    expect(root.querySelector("ul")).toBe(listBefore);
+    expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Alpha"]);
+  });
+
+  it("keeps retained list branches up to date while they are hidden", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const visible = cell(true);
+    const items = cell([{ id: 1, label: "Alpha" }]);
+
+    mount(
+      () =>
+        h(
+          "section",
+          null,
+          dynBlock(() =>
+            get(visible)
+              ? h(
+                  "ul",
+                  null,
+                  list(
+                    () => get(items),
+                    (item) => item.id,
+                    (item) => h("li", null, item.label),
+                  ),
+                )
+              : h("p", null, "hidden"),
+          ),
+        ),
+      root,
+    );
+
+    set(visible, false);
+    await flushMicrotask();
+
+    set(items, [{ id: 1, label: "Updated" }]);
+    await flushMicrotask();
+
+    set(visible, true);
+    await flushMicrotask();
+
+    expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Updated"]);
+  });
+
   it("navigates internal anchors through the router without a custom Link component", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);

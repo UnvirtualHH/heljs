@@ -7,6 +7,7 @@ import {
   isDynamic,
   isKeyedList,
   isNodeFactory,
+  onScopeCleanup,
   isTemplateFactory,
   isTextBinding,
   runWithScope,
@@ -51,12 +52,56 @@ type ListEntry<T> = {
 
 const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 
+type RetainedBlockBranch = {
+  signature: string;
+  nodes: Node[];
+  scope: Scope;
+};
+
 function resolveComponentPropValue(value: unknown): unknown {
   if (isDynamic(value)) {
     return value.read();
   }
 
   return value;
+}
+
+function getNodeSignature(node: Node): string {
+  if (node instanceof HTMLElement) {
+    return `element:${node.tagName}`;
+  }
+
+  if (node instanceof Text) {
+    return "text";
+  }
+
+  if (node instanceof Comment) {
+    return "comment";
+  }
+
+  return node.nodeName;
+}
+
+function getNodeListSignature(nodes: Node[]): string {
+  return nodes.map(getNodeSignature).join("|");
+}
+
+function containsRetainableMarker(node: Node): boolean {
+  if (isCommentNode(node, BLOCK_START) || isCommentNode(node, BLOCK_END)) {
+    return true;
+  }
+
+  for (const child of node.childNodes) {
+    if (containsRetainableMarker(child)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function shouldRetainBlockBranch(nodes: Node[]): boolean {
+  return nodes.some(containsRetainableMarker);
 }
 
 export function hasReactiveComponentProps(props: Record<string, unknown> | null): boolean {
@@ -402,7 +447,16 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
   let end: Comment | null = null;
   let currentNodes: Node[] = [];
   let contentScope: Scope | null = null;
+  let retainedBranch: RetainedBlockBranch | null = null;
   let hydrated = false;
+
+  onScopeCleanup(() => {
+    disposeScope(contentScope);
+    if (retainedBranch) {
+      disposeScope(retainedBranch.scope);
+      retainedBranch = null;
+    }
+  });
 
   if (start && frame) {
     currentNodes = [];
@@ -454,29 +508,83 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
       return;
     }
 
-    disposeScope(contentScope);
-    contentScope = createScope();
-    const nextValue = runWithScope(contentScope, () => read());
-    const nextNodes = runWithScope(contentScope, () => toNodeList(nextValue));
-
-    if (tryPatchNodeListInPlace(currentNodes, nextNodes)) {
+    if (!shouldRetainBlockBranch(currentNodes) && !retainedBranch) {
       disposeScope(contentScope);
-      currentNodes = currentNodes.slice();
-      return;
-    }
+      contentScope = createScope();
+      const nextValue = runWithScope(contentScope, () => read());
+      const nextNodes = runWithScope(contentScope, () => toNodeList(nextValue));
 
-    if (
-      currentNodes.length === 1 &&
-      nextNodes.length === 1 &&
-      currentNodes[0]!.parentNode === parent
-    ) {
-      replaceNode(parent, nextNodes[0]!, currentNodes[0]!);
+      if (tryPatchNodeListInPlace(currentNodes, nextNodes)) {
+        disposeScope(contentScope);
+        currentNodes = currentNodes.slice();
+        return;
+      }
+
+      if (
+        currentNodes.length === 1 &&
+        nextNodes.length === 1 &&
+        currentNodes[0]!.parentNode === parent
+      ) {
+        replaceNode(parent, nextNodes[0]!, currentNodes[0]!);
+        currentNodes = nextNodes;
+        return;
+      }
+
+      replaceNodesBetween(parent, start!, end!, nextNodes, currentNodes.length);
       currentNodes = nextNodes;
       return;
     }
 
-    replaceNodesBetween(parent, start!, end!, nextNodes, currentNodes.length);
-    currentNodes = nextNodes;
+    const previousScope = contentScope;
+    const nextScope = createScope();
+    const nextValue = runWithScope(nextScope, () => read());
+    const nextNodes = runWithScope(nextScope, () => toNodeList(nextValue));
+
+    if (tryPatchNodeListInPlace(currentNodes, nextNodes)) {
+      disposeScope(nextScope);
+      currentNodes = currentNodes.slice();
+      return;
+    }
+
+    const nextSignature = getNodeListSignature(nextNodes);
+    let chosenNodes = nextNodes;
+    let chosenScope = nextScope;
+
+    if (retainedBranch && retainedBranch.signature === nextSignature) {
+      disposeScope(nextScope);
+      chosenNodes = retainedBranch.nodes;
+      chosenScope = retainedBranch.scope;
+      retainedBranch = null;
+    }
+
+    if (previousScope && currentNodes.length > 0 && shouldRetainBlockBranch(currentNodes)) {
+      const previousSignature = getNodeListSignature(currentNodes);
+      if (retainedBranch) {
+        disposeScope(retainedBranch.scope);
+      }
+      retainedBranch = {
+        signature: previousSignature,
+        nodes: currentNodes,
+        scope: previousScope,
+      };
+    } else {
+      disposeScope(previousScope);
+    }
+
+    if (
+      currentNodes.length === 1 &&
+      chosenNodes.length === 1 &&
+      currentNodes[0]!.parentNode === parent
+    ) {
+      replaceNode(parent, chosenNodes[0]!, currentNodes[0]!);
+      currentNodes = chosenNodes;
+      contentScope = chosenScope;
+      return;
+    }
+
+    replaceNodesBetween(parent, start!, end!, chosenNodes, currentNodes.length);
+    currentNodes = chosenNodes;
+    contentScope = chosenScope;
   });
 }
 
