@@ -9,6 +9,10 @@ import type { TodoFilter, TodoItem, TodoPriority, TodoStore } from "./types";
 export function App() {
   const state = store<TodoStore>(readInitialState());
 
+  function todoPath(id: string) {
+    return `/todos/${encodeURIComponent(id)}`;
+  }
+
   function persist() {
     if (typeof window === "undefined") {
       return;
@@ -69,6 +73,18 @@ export function App() {
     return selectedTodo() && selectedTodo()!.done ? "Ready" : "In progress";
   }
 
+  function syncSelectionFromRoute(routeTodoId?: string) {
+    if (!routeTodoId) {
+      if (!state.selectedId && state.todos[0]) {
+        state.selectedId = state.todos[0].id;
+      }
+      return;
+    }
+
+    const exists = state.todos.some((todo) => todo.id === routeTodoId);
+    state.selectedId = exists ? routeTodoId : "";
+  }
+
   function addTodo(event: Event) {
     event.preventDefault();
 
@@ -91,6 +107,7 @@ export function App() {
     state.filter = "all";
     state.draft = "";
     persist();
+    router.navigate(todoPath(item.id));
   }
 
   function setFilter(filter: TodoFilter) {
@@ -101,6 +118,7 @@ export function App() {
   function selectTodo(id: string) {
     state.selectedId = id;
     persist();
+    router.navigate(todoPath(id));
   }
 
   function toggleTodo(id: string, done: boolean) {
@@ -152,7 +170,9 @@ export function App() {
     state.todos.splice(index, 1);
 
     if (state.selectedId === id) {
-      state.selectedId = state.todos[0]?.id ?? "";
+      const nextId = state.todos[0]?.id ?? "";
+      state.selectedId = nextId;
+      router.navigate(nextId ? todoPath(nextId) : "/todos", { replace: true });
     }
 
     persist();
@@ -161,39 +181,64 @@ export function App() {
   const router = createRouter([
     {
       path: "/",
-      view: () => (
-        <OverviewPage
-          completionRatio={completionRatio}
-          pendingHeadline={pendingHeadline}
-          selectedTodo={selectedTodo}
-        />
-      ),
+      view: () =>
+        OverviewPage({
+          completionRatio,
+          pendingHeadline,
+          selectedTodo,
+        }),
     },
     {
       path: "/todos",
-      view: () => (
-        <TodosPage
-          state={state}
-          completionRatio={completionRatio}
-          pendingHeadline={pendingHeadline}
-          completedTodos={completedTodos}
-          openTodos={openTodos}
-          filteredTodos={filteredTodos}
-          selectedTodo={selectedTodo}
-          hasSelection={hasSelection}
-          selectedStatus={selectedStatus}
-          addTodo={addTodo}
-          setFilter={setFilter}
-          selectTodo={selectTodo}
-          toggleTodo={toggleTodo}
-          renameTodo={renameTodo}
-          changePriority={changePriority}
-          changeNote={changeNote}
-          removeTodo={removeTodo}
-        />
-      ),
+      view: () => {
+        syncSelectionFromRoute();
+        return TodosPage({
+          state,
+          completionRatio,
+          pendingHeadline,
+          completedTodos,
+          openTodos,
+          filteredTodos,
+          selectedTodo,
+          hasSelection,
+          selectedStatus,
+          addTodo,
+          setFilter,
+          selectTodo,
+          toggleTodo,
+          renameTodo,
+          changePriority,
+          changeNote,
+          removeTodo,
+        });
+      },
     },
-    { path: "/about", view: () => <AboutPage /> },
+    {
+      path: "/todos/:id",
+      view: () => {
+        syncSelectionFromRoute(router.params().id);
+        return TodosPage({
+          state,
+          completionRatio,
+          pendingHeadline,
+          completedTodos,
+          openTodos,
+          filteredTodos,
+          selectedTodo,
+          hasSelection,
+          selectedStatus,
+          addTodo,
+          setFilter,
+          selectTodo,
+          toggleTodo,
+          renameTodo,
+          changePriority,
+          changeNote,
+          removeTodo,
+        });
+      },
+    },
+    { path: "/about", view: () => AboutPage() },
   ]);
 
   return (
@@ -217,7 +262,7 @@ export function App() {
       </header>
 
       <section class="chips">
-        <AccentBadges />
+        {AccentBadges()}
       </section>
 
       <nav class="route-nav" aria-label="Primary navigation">

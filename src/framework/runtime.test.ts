@@ -244,6 +244,83 @@ describe("runtime", () => {
     expect(links[1]?.getAttribute("data-active")).toBe("");
   });
 
+  it("matches route params and exposes them through router.params()", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const router = createRouter(
+      [
+        { path: "/", view: () => h("h2", null, "Home") },
+        { path: "/todos/:id", view: () => h("h2", null, `Todo ${router.params().id ?? "missing"}`) },
+      ],
+      { initialPath: "/todos/claim-dom" },
+    );
+
+    mount(
+      () =>
+        h(
+          "main",
+          null,
+          h("a", { href: "/todos/explore-routing", "data-active": router.isActive("/todos/:id") }, "Route"),
+          router.view(),
+        ),
+      root,
+    );
+
+    expect(root.querySelector("h2")?.textContent).toBe("Todo claim-dom");
+    expect(router.params().id).toBe("claim-dom");
+    expect(root.querySelector("a")?.getAttribute("data-active")).toBe("");
+
+    root
+      .querySelector("a")
+      ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    await flushMicrotask();
+
+    expect(root.querySelector("h2")?.textContent).toBe("Todo explore-routing");
+    expect(router.params().id).toBe("explore-routing");
+    expect(window.location.pathname).toBe("/todos/explore-routing");
+  });
+
+  it("keeps focused inputs stable when router view contains reactive store state", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const state = store({
+      draft: "Alpha",
+    });
+
+    const router = createRouter(
+      [
+        {
+          path: "/todos",
+          view: () =>
+            h("section", null, h("input", {
+              value: dynAttr(() => state.draft),
+              onInput: (event: Event) => {
+                state.draft = (event.currentTarget as HTMLInputElement).value;
+              },
+            })),
+        },
+      ],
+      { initialPath: "/todos" },
+    );
+
+    mount(() => h("main", null, router.view()), root);
+
+    const inputBefore = root.querySelector("input")!;
+    inputBefore.focus();
+    expect(document.activeElement).toBe(inputBefore);
+
+    inputBefore.value = "Beta";
+    inputBefore.dispatchEvent(new window.Event("input", { bubbles: true }));
+    await flushMicrotask();
+
+    const inputAfter = root.querySelector("input")!;
+    expect(inputAfter).toBe(inputBefore);
+    expect(document.activeElement).toBe(inputBefore);
+    expect(inputAfter.value).toBe("Beta");
+  });
+
   it("renders For with keyed items through reactive props", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);

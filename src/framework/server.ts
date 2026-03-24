@@ -25,12 +25,18 @@ type RouteDefinition = {
   view: () => unknown;
 };
 
+type RouteMatch = {
+  route: RouteDefinition;
+  params: Record<string, string>;
+};
+
 type RouterOptions = {
   initialPath?: string;
 };
 
 export type Router = {
   currentPath: () => string;
+  params: () => Record<string, string>;
   navigate: (path: string, options?: { replace?: boolean }) => void;
   view: () => unknown;
   isActive: (path: string) => boolean;
@@ -275,23 +281,69 @@ function normalizeRoutePath(path: string): string {
   return path.startsWith("/") ? path : `/${path.replace(/^\/+/, "")}`;
 }
 
-function findRoute(routes: RouteDefinition[], path: string): RouteDefinition | null {
+function splitRoutePath(path: string): string[] {
+  const normalized = normalizeRoutePath(path)
+    .replace(/\/+$/, "")
+    .replace(/^\/+/, "");
+
+  return normalized ? normalized.split("/") : [];
+}
+
+function matchRoutePath(routePath: string, path: string): Record<string, string> | null {
+  const routeSegments = splitRoutePath(routePath);
+  const pathSegments = splitRoutePath(path);
+
+  if (routeSegments.length !== pathSegments.length) {
+    return null;
+  }
+
+  const params: Record<string, string> = {};
+
+  for (let index = 0; index < routeSegments.length; index += 1) {
+    const routeSegment = routeSegments[index]!;
+    const pathSegment = pathSegments[index]!;
+
+    if (routeSegment.startsWith(":")) {
+      params[routeSegment.slice(1)] = decodeURIComponent(pathSegment);
+      continue;
+    }
+
+    if (routeSegment !== pathSegment) {
+      return null;
+    }
+  }
+
+  return params;
+}
+
+function findRoute(routes: RouteDefinition[], path: string): RouteMatch | null {
   const normalized = normalizeRoutePath(path);
-  return routes.find((route) => route.path === normalized) ?? null;
+
+  for (const route of routes) {
+    const params = matchRoutePath(route.path, normalized);
+    if (params) {
+      return { route, params };
+    }
+  }
+
+  return null;
 }
 
 export function createRouter(routes: RouteDefinition[], options: RouterOptions = {}): Router {
   let currentPath = normalizeRoutePath(options.initialPath ?? "/");
+  let currentParams = findRoute(routes, currentPath)?.params ?? {};
 
   return {
     currentPath: () => currentPath,
+    params: () => currentParams,
     navigate: (nextPath: string) => {
       currentPath = normalizeRoutePath(nextPath);
+      currentParams = findRoute(routes, currentPath)?.params ?? {};
     },
     view: () => {
       const match = findRoute(routes, currentPath);
       if (match) {
-        return match.view();
+        return match.route.view();
       }
 
       return h(
@@ -301,7 +353,7 @@ export function createRouter(routes: RouteDefinition[], options: RouterOptions =
         h("p", null, `No route matched ${currentPath}.`),
       );
     },
-    isActive: (path: string) => currentPath === normalizeRoutePath(path),
+    isActive: (path: string) => Boolean(matchRoutePath(path, currentPath)),
   };
 }
 

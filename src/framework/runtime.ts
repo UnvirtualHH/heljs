@@ -70,12 +70,18 @@ type RouteDefinition = {
   view: () => unknown;
 };
 
+type RouteMatch = {
+  route: RouteDefinition;
+  params: Record<string, string>;
+};
+
 type RouterOptions = {
   initialPath?: string;
 };
 
 export type Router = {
   currentPath: () => string;
+  params: () => Record<string, string>;
   navigate: (path: string, options?: { replace?: boolean }) => void;
   view: () => Dynamic<unknown>;
   isActive: (path: string) => Dynamic<boolean>;
@@ -222,6 +228,17 @@ function cleanup(runner: EffectRunner): void {
   }
 
   runner.deps.clear();
+}
+
+function untrack<T>(fn: () => T): T {
+  const previous = activeEffect;
+  activeEffect = null;
+
+  try {
+    return fn();
+  } finally {
+    activeEffect = previous;
+  }
 }
 
 function createScope(): Scope {
@@ -695,9 +712,52 @@ function normalizeRoutePath(path: string): string {
   return `/${path.replace(/^\/+/, "")}`;
 }
 
-function findRoute(routes: RouteDefinition[], path: string): RouteDefinition | null {
+function splitRoutePath(path: string): string[] {
+  const normalized = normalizeRoutePath(path)
+    .replace(/\/+$/, "")
+    .replace(/^\/+/, "");
+
+  return normalized ? normalized.split("/") : [];
+}
+
+function matchRoutePath(routePath: string, path: string): Record<string, string> | null {
+  const routeSegments = splitRoutePath(routePath);
+  const pathSegments = splitRoutePath(path);
+
+  if (routeSegments.length !== pathSegments.length) {
+    return null;
+  }
+
+  const params: Record<string, string> = {};
+
+  for (let index = 0; index < routeSegments.length; index += 1) {
+    const routeSegment = routeSegments[index]!;
+    const pathSegment = pathSegments[index]!;
+
+    if (routeSegment.startsWith(":")) {
+      params[routeSegment.slice(1)] = decodeURIComponent(pathSegment);
+      continue;
+    }
+
+    if (routeSegment !== pathSegment) {
+      return null;
+    }
+  }
+
+  return params;
+}
+
+function findRoute(routes: RouteDefinition[], path: string): RouteMatch | null {
   const normalized = normalizeRoutePath(path);
-  return routes.find((route) => route.path === normalized) ?? null;
+
+  for (const route of routes) {
+    const params = matchRoutePath(route.path, normalized);
+    if (params) {
+      return { route, params };
+    }
+  }
+
+  return null;
 }
 
 function installRouterEvents(router: Router): void {
@@ -769,17 +829,20 @@ function installRouterEvents(router: Router): void {
 }
 
 export function createRouter(routes: RouteDefinition[], options: RouterOptions = {}): Router {
-  const path = cell(
-    normalizeRoutePath(
-      options.initialPath ?? (typeof window !== "undefined" ? window.location.pathname : "/"),
-    ),
+  const initialPath = normalizeRoutePath(
+    options.initialPath ?? (typeof window !== "undefined" ? window.location.pathname : "/"),
   );
+  const initialMatch = findRoute(routes, initialPath);
+  const path = cell(initialPath);
+  const params = cell<Record<string, string>>(initialMatch?.params ?? {});
 
   const router: Router & { routes: RouteDefinition[] } = {
     routes,
     currentPath: () => get(path),
+    params: () => get(params),
     navigate: (nextPath: string, navOptions?: { replace?: boolean }) => {
       const normalized = normalizeRoutePath(nextPath);
+      const nextMatch = findRoute(routes, normalized);
 
       if (typeof window !== "undefined") {
         const current = normalizeRoutePath(window.location.pathname);
@@ -793,24 +856,27 @@ export function createRouter(routes: RouteDefinition[], options: RouterOptions =
       }
 
       set(path, normalized);
+      set(params, nextMatch?.params ?? {});
     },
     view: () =>
       dynBlock(() => {
         const current = get(path);
         const match = findRoute(routes, current);
         if (match) {
-          return match.view();
+          return untrack(() => match.route.view());
         }
 
-        return h(
-          "section",
-          { class: "route-miss" },
-          h("h2", null, "Not found"),
-          h("p", null, `No route matched ${current}.`),
+        return untrack(() =>
+          h(
+            "section",
+            { class: "route-miss" },
+            h("h2", null, "Not found"),
+            h("p", null, `No route matched ${current}.`),
+          ),
         );
       }),
     isActive: (targetPath: string) =>
-      dynAttr(() => get(path) === normalizeRoutePath(targetPath)),
+      dynAttr(() => Boolean(matchRoutePath(targetPath, get(path)))),
   };
 
   installRouterEvents(router);

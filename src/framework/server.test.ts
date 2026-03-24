@@ -86,4 +86,19 @@ describe("server renderer", () => {
     expect(html).toContain("<h2>About</h2>");
     expect(html).not.toContain("<h2>Home</h2>");
   });
+
+  it("renders param routes with the current params on the server", () => {
+    const router = createRouter(
+      [
+        { path: "/", view: () => h("h2", null, "Home") },
+        { path: "/todos/:id", view: () => h("h2", null, `Todo ${router.params().id ?? "missing"}`) },
+      ],
+      { initialPath: "/todos/claim-dom" },
+    );
+
+    const html = renderToString(() => h("main", null, router.view()));
+
+    expect(html).toContain("<h2>Todo claim-dom</h2>");
+    expect(router.params().id).toBe("claim-dom");
+  });
 });

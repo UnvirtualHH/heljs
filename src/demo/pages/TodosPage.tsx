@@ -75,15 +75,14 @@ function TodoCard(props: {
 }
 
 export function TodosPage(props: TodosPageProps) {
-  const renderTodo = (todo: TodoItem) => (
-    <TodoCard
-      todo={todo}
-      selectedId={props.state.selectedId}
-      selectTodo={props.selectTodo}
-      toggleTodo={props.toggleTodo}
-      renameTodo={props.renameTodo}
-    />
-  );
+  const renderTodo = (todo: TodoItem) =>
+    TodoCard({
+      todo,
+      selectedId: props.state.selectedId,
+      selectTodo: props.selectTodo,
+      toggleTodo: props.toggleTodo,
+      renameTodo: props.renameTodo,
+    });
 
   return (
     <section class="dashboard-grid">
