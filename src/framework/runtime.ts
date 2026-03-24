@@ -398,6 +398,11 @@ export interface Cell<T> {
   subscribers: Set<EffectRunner>;
 }
 
+type StoreState = {
+  subscribers: Set<EffectRunner>;
+  proxies: WeakMap<object, object>;
+};
+
 export function cell<T>(value: T): Cell<T> {
   return {
     value,
@@ -405,17 +410,84 @@ export function cell<T>(value: T): Cell<T> {
   };
 }
 
+function trackSubscribers(subscribers: Set<EffectRunner>): void {
+  if (!activeEffect) {
+    return;
+  }
+
+  const tracked = !subscribers.has(activeEffect);
+  subscribers.add(activeEffect);
+  activeEffect.deps.add(subscribers);
+  if (tracked) {
+    runtimeStats.subscriptionsTracked += 1;
+  }
+}
+
+function notifySubscribers(subscribers: Set<EffectRunner>): void {
+  for (const subscriber of subscribers) {
+    schedule(subscriber);
+  }
+}
+
+function isStoreObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}
+
+function createStoreProxy<T extends object>(target: T, state: StoreState): T {
+  const existing = state.proxies.get(target);
+  if (existing) {
+    return existing as T;
+  }
+
+  const proxy = new Proxy(target, {
+    get(currentTarget, key, receiver) {
+      trackSubscribers(state.subscribers);
+      const value = Reflect.get(currentTarget, key, receiver);
+      return isStoreObject(value) ? createStoreProxy(value, state) : value;
+    },
+
+    set(currentTarget, key, value, receiver) {
+      const previous = Reflect.get(currentTarget, key, receiver);
+      const next = Reflect.set(currentTarget, key, value, receiver);
+
+      if (next && !Object.is(previous, value)) {
+        runtimeStats.cellWrites += 1;
+        notifySubscribers(state.subscribers);
+      }
+
+      return next;
+    },
+
+    deleteProperty(currentTarget, key) {
+      const existed = Reflect.has(currentTarget, key);
+      const next = Reflect.deleteProperty(currentTarget, key);
+
+      if (next && existed) {
+        runtimeStats.cellWrites += 1;
+        notifySubscribers(state.subscribers);
+      }
+
+      return next;
+    },
+  });
+
+  state.proxies.set(target, proxy);
+  return proxy;
+}
+
+export function store<T extends object>(value: T): T {
+  const state: StoreState = {
+    subscribers: new Set<EffectRunner>(),
+    proxies: new WeakMap<object, object>(),
+  };
+
+  return createStoreProxy(value, state);
+}
+
 export function get<T>(slot: Cell<T>): T {
   runtimeStats.cellReads += 1;
 
-  if (activeEffect) {
-    const tracked = !slot.subscribers.has(activeEffect);
-    slot.subscribers.add(activeEffect);
-    activeEffect.deps.add(slot.subscribers);
-    if (tracked) {
-      runtimeStats.subscriptionsTracked += 1;
-    }
-  }
+  trackSubscribers(slot.subscribers);
 
   return slot.value;
 }
@@ -428,10 +500,7 @@ export function set<T>(slot: Cell<T>, next: T): T {
   }
 
   slot.value = next;
-
-  for (const subscriber of slot.subscribers) {
-    schedule(subscriber);
-  }
+  notifySubscribers(slot.subscribers);
 
   return next;
 }
@@ -1521,7 +1590,7 @@ export function h(
   ...children: unknown[]
 ): unknown {
   if (typeof tag === "function") {
-    const renderComponent = () => toRenderableNode(tag(resolveComponentProps(props, children)));
+    const renderComponent = () => tag(resolveComponentProps(props, children));
 
     if (hasReactiveComponentProps(props)) {
       return dynBlock(renderComponent);

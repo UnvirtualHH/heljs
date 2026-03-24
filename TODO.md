@@ -235,6 +235,8 @@ Ziel: Von "coolem Prototyp" zu "damit kann man Dinge bauen".
 ### State-Features
 
 - [ ] Entscheidung treffen zu Stores / tiefer Objekt-Reaktivitaet
+  - [x] minimaler Proxy-Store fuer lokale Objekt-/Array-Mutationen
+  - [ ] feingranulare Store-Semantik bewusst entscheiden
 - [ ] optional internes `memo`/derived-Caching evaluieren
 - [ ] Async-/Resource-Story definieren
   - absichtlich nicht

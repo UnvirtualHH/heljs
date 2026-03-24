@@ -134,4 +134,31 @@ describe("compiler plugin", () => {
     expect(error?.message).toContain("Component.tsx");
     expect(error?.message).toContain("Counter");
   });
+
+  it("treats store reads in jsx as reactive dependencies", () => {
+    const output = transform(`
+      import { store } from "@hel/runtime";
+      export function Counter() {
+        const state = store({ count: 0 });
+        return <p>{state.count}</p>;
+      }
+    `);
+
+    expect(output).toContain("__dynText(() => state.count)");
+  });
+
+  it("tracks helper functions that read from store bindings", () => {
+    const output = transform(`
+      import { store } from "@hel/runtime";
+      export function Counter() {
+        const state = store({ count: 0 });
+        function label() {
+          return state.count % 2 === 0 ? "even" : "odd";
+        }
+        return <p>{label()}</p>;
+      }
+    `);
+
+    expect(output).toContain("__dynText(() => label())");
+  });
 });

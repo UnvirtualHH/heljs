@@ -63,6 +63,7 @@ type LocalFunctionInfo = {
 
 type ComponentAnalysis = {
   reactiveCellNames: Set<string>;
+  reactiveStoreNames: Set<string>;
   reactiveFunctionNames: Set<string>;
   blockFunctionNames: Set<string>;
 };
@@ -295,6 +296,7 @@ function functionContainsBlockSyntax(path: LocalFunctionPath): boolean {
 function analyzeLocalFunctions(
   functionPath: NodePath<t.FunctionDeclaration | t.FunctionExpression | t.ArrowFunctionExpression>,
   reactive: Map<string, ReactiveInfo>,
+  reactiveStores: Map<string, t.Identifier>,
 ): { reactiveFunctions: Set<t.Identifier>; blockFunctions: Set<t.Identifier> } {
   const localFunctions = collectLocalFunctions(functionPath);
 
@@ -314,6 +316,13 @@ function analyzeLocalFunctions(
         }
 
         if (shouldRewrite(path.node.name, path, reactive)) {
+          info.readsReactive = true;
+          return;
+        }
+
+        const storeBinding = reactiveStores.get(path.node.name);
+        const binding = path.scope.getBinding(path.node.name);
+        if (storeBinding && binding && binding.identifier === storeBinding) {
           info.readsReactive = true;
         }
       },
@@ -402,6 +411,10 @@ function hasReactiveDependency(node: t.Expression, analysis?: ComponentAnalysis)
     const current = stack.pop()!;
 
     if (isRuntimeReactiveRead(current, analysis)) {
+      return true;
+    }
+
+    if (t.isIdentifier(current) && analysis.reactiveStoreNames.has(current.name)) {
       return true;
     }
 
@@ -790,6 +803,7 @@ function transformComponent(
     return {
       analysis: {
         reactiveCellNames: new Set<string>(),
+        reactiveStoreNames: new Set<string>(),
         reactiveFunctionNames: new Set<string>(),
         blockFunctionNames: new Set<string>(),
       },
@@ -798,11 +812,24 @@ function transformComponent(
   }
 
   const reactive = new Map<string, ReactiveInfo>();
+  const reactiveStores = new Map<string, t.Identifier>();
   let changed = false;
   let cellCounter = 0;
 
   for (const statementPath of bodyPath.get("body")) {
     if (!statementPath.isVariableDeclaration({ kind: "let" })) {
+      if (statementPath.isVariableDeclaration()) {
+        for (const declaration of statementPath.node.declarations) {
+          if (
+            t.isIdentifier(declaration.id) &&
+            declaration.init &&
+            t.isCallExpression(declaration.init) &&
+            t.isIdentifier(declaration.init.callee, { name: "store" })
+          ) {
+            reactiveStores.set(declaration.id.name, declaration.id);
+          }
+        }
+      }
       continue;
     }
 
@@ -829,7 +856,7 @@ function transformComponent(
     }
   }
 
-  const { reactiveFunctions, blockFunctions } = analyzeLocalFunctions(functionPath, reactive);
+  const { reactiveFunctions, blockFunctions } = analyzeLocalFunctions(functionPath, reactive, reactiveStores);
 
   for (const statementPath of bodyPath.get("body")) {
     if (!statementPath.isVariableDeclaration({ kind: "let" })) {
@@ -878,10 +905,11 @@ function transformComponent(
     }
   }
 
-  if (reactive.size === 0) {
+  if (reactive.size === 0 && reactiveStores.size === 0) {
     return {
       analysis: {
         reactiveCellNames: new Set<string>(),
+        reactiveStoreNames: new Set<string>(),
         reactiveFunctionNames: new Set<string>(),
         blockFunctionNames: new Set<string>(),
       },
@@ -1036,6 +1064,7 @@ function transformComponent(
   return {
     analysis: {
       reactiveCellNames: new Set(Array.from(reactive.values(), (info) => info.cellName)),
+      reactiveStoreNames: new Set(Array.from(reactiveStores.keys())),
       reactiveFunctionNames: new Set(Array.from(reactiveFunctions, (identifier) => identifier.name)),
       blockFunctionNames: new Set(Array.from(blockFunctions, (identifier) => identifier.name)),
     },

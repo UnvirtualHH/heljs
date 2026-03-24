@@ -259,6 +259,31 @@ Der aktuelle Stil ist dabei bewusst immutable:
 
 Tiefe Store-Mutationen wie `setTodos(i, "done", true)` gibt es in Hel aktuell noch nicht.
 
+### 8. Minimaler Tiefer Store
+
+Fuer Arrays und Objekte gibt es jetzt zusaetzlich einen kleinen Proxy-Store:
+
+```tsx
+import { store } from "@hel/runtime";
+
+const todos = store([
+  { title: "Ship Hel", done: false },
+]);
+
+todos.push({ title: "Benchmark runtime", done: true });
+todos[0].done = true;
+todos[0].title = "Ship Hel v0.1";
+```
+
+Wichtige Semantik:
+
+- absichtlich grob-granular pro Store
+- tiefe Property- und Array-Mutationen triggern Reaktivitaet
+- keine feingranulare Property-Dependency-Graphen wie bei Solid Stores
+- gut genug fuer kleine bis mittlere lokale Datenstrukturen
+
+Der Compiler erkennt `store(...)`-Reads in JSX und lokalen Helper-Funktionen als reaktive Abhaengigkeiten.
+
 ## Was intern zu was wird
 
 Die User-API ist absichtlich "magisch". Intern landet sie aber auf einer kleinen Runtime.

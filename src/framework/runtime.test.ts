@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { attr, cell, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, text, tpl } from "./runtime";
+import { attr, cell, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, store, text, tpl } from "./runtime";
 import {
   dynBlock as serverDynBlock,
   dynText as serverDynText,
@@ -207,6 +207,46 @@ describe("runtime", () => {
     await flushMicrotask();
 
     expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Two", "Three"]);
+  });
+
+  it("updates text when nested store properties change", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const state = store({
+      counter: {
+        value: 1,
+      },
+    });
+
+    mount(() => h("p", null, dynText(() => state.counter.value)), root);
+    expect(root.textContent).toBe("1");
+
+    state.counter.value = 2;
+    await flushMicrotask();
+
+    expect(root.textContent).toBe("2");
+  });
+
+  it("updates list-like output when store arrays mutate in place", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const todos = store([
+      { title: "Alpha" },
+      { title: "Beta" },
+    ]);
+
+    mount(() => h("p", null, dynText(() => todos.map((todo) => todo.title).join(", "))), root);
+    expect(root.textContent).toBe("Alpha, Beta");
+
+    todos.push({ title: "Gamma" });
+    await flushMicrotask();
+    expect(root.textContent).toBe("Alpha, Beta, Gamma");
+
+    todos[1]!.title = "Beta 2";
+    await flushMicrotask();
+    expect(root.textContent).toBe("Alpha, Beta 2, Gamma");
   });
 
   it("clones static templates on mount without using the fallback builder", () => {

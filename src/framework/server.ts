@@ -112,6 +112,10 @@ export function cell<T>(value: T): Cell<T> {
   };
 }
 
+export function store<T extends object>(value: T): T {
+  return value;
+}
+
 export function get<T>(slot: Cell<T>): T {
   return slot.value;
 }

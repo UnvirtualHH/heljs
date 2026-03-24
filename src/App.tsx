@@ -1,4 +1,4 @@
-import { For, Show } from "@hel/runtime";
+import { For, Show, store } from "@hel/runtime";
 
 function AccentBadges() {
   return (
@@ -20,11 +20,11 @@ export function App() {
   let visible = true;
   let step = 1;
   let newTitle = "";
-  let todos: TodoItem[] = [
+  const todos = store<TodoItem[]>([
     { title: "Claim prerendered DOM", done: true },
     { title: "Patch dynamic text slots", done: true },
     { title: "Build keyed list diff", done: false },
-  ];
+  ]);
 
   function increment() {
     count += step;
@@ -69,24 +69,24 @@ export function App() {
       return;
     }
 
-    todos = [...todos, { title, done: false }];
+    todos.push({ title, done: false });
     newTitle = "";
   }
 
   function toggleTodo(index: number, done: boolean) {
-    todos = todos.map((todo, currentIndex) =>
-      currentIndex === index ? { ...todo, done } : todo,
-    );
+    if (todos[index]) {
+      todos[index]!.done = done;
+    }
   }
 
   function renameTodo(index: number, title: string) {
-    todos = todos.map((todo, currentIndex) =>
-      currentIndex === index ? { ...todo, title } : todo,
-    );
+    if (todos[index]) {
+      todos[index]!.title = title;
+    }
   }
 
   function removeTodo(index: number) {
-    todos = todos.filter((_, currentIndex) => currentIndex !== index);
+    todos.splice(index, 1);
   }
 
   const ratio = () => `${count}:${step}`;
@@ -95,6 +95,47 @@ export function App() {
   function renderStatus() {
     return <p class="status">Helper output: {summary()}</p>;
   }
+
+  const renderFrame = (entry: ReturnType<typeof recentFrames>[number]) => (
+    <li class="frame-row" data-state={entry.state}>
+      <span class="frame-label">{entry.label}</span>
+      <span class="frame-value">{entry.value}</span>
+      <span class="frame-state">{entry.state}</span>
+    </li>
+  );
+
+  const renderTodo = (todo: TodoItem, index: number) => (
+    <div class="todo-row" data-done={todo.done}>
+      <input
+        type="checkbox"
+        checked={todo.done}
+        onChange={(event: Event) => {
+          toggleTodo(
+            index,
+            (event.currentTarget as HTMLInputElement).checked,
+          );
+        }}
+      />
+      <input
+        class="todo-title"
+        type="text"
+        value={todo.title}
+        onInput={(event: Event) => {
+          renameTodo(
+            index,
+            (event.currentTarget as HTMLInputElement).value,
+          );
+        }}
+      />
+      <button
+        class="todo-remove"
+        type="button"
+        onClick={() => removeTodo(index)}
+      >
+        x
+      </button>
+    </div>
+  );
 
   return (
     <main class="app">
@@ -161,13 +202,7 @@ export function App() {
                 each={recentFrames()}
                 key={(entry: ReturnType<typeof recentFrames>[number]) => entry.id}
               >
-                {(entry: ReturnType<typeof recentFrames>[number]) => (
-                  <li class="frame-row" data-state={entry.state}>
-                    <span class="frame-label">{entry.label}</span>
-                    <span class="frame-value">{entry.value}</span>
-                    <span class="frame-state">{entry.state}</span>
-                  </li>
-                )}
+                {renderFrame}
               </For>
             </ul>
           </div>
@@ -194,40 +229,7 @@ export function App() {
               </button>
             </form>
             <div class="todo-list">
-              <For each={todos}>
-                {(todo: TodoItem, index: number) => (
-                  <div class="todo-row" data-done={todo.done}>
-                    <input
-                      type="checkbox"
-                      checked={todo.done}
-                      onChange={(event: Event) => {
-                        toggleTodo(
-                          index,
-                          (event.currentTarget as HTMLInputElement).checked,
-                        );
-                      }}
-                    />
-                    <input
-                      class="todo-title"
-                      type="text"
-                      value={todo.title}
-                      onInput={(event: Event) => {
-                        renameTodo(
-                          index,
-                          (event.currentTarget as HTMLInputElement).value,
-                        );
-                      }}
-                    />
-                    <button
-                      class="todo-remove"
-                      type="button"
-                      onClick={() => removeTodo(index)}
-                    >
-                      x
-                    </button>
-                  </div>
-                )}
-              </For>
+              <For each={todos}>{renderTodo}</For>
             </div>
           </div>
           {renderStatus()}
