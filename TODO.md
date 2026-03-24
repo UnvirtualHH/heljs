@@ -290,8 +290,11 @@ Ziel: Das Ding muss veroeffentlichbar und konsumierbar sein.
 ### Tooling-Integration
 
 - [x] Vite-Plugin oeffentlich konsumierbar machen
-- [ ] Minimalbeispiel fuer SSR-Integration bereitstellen
+- [x] Minimalbeispiel fuer SSR-Integration bereitstellen
 - [x] Templates / Starter erzeugen
+- [x] Externe Consumer automatisiert gegen Paketartefakte pruefen
+  - `starter/`
+  - `starter-ssr/`
 
 ### Browser und Plattformen
 

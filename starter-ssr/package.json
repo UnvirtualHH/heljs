@@ -1,0 +1,17 @@
+{
+  "name": "hel-starter-ssr",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "node ../node_modules/vite/bin/vite.js",
+    "build:client": "node ../node_modules/vite/bin/vite.js build",
+    "build:server": "node ../node_modules/vite/bin/vite.js build --ssr src/entry-server.tsx --outDir dist/server",
+    "prerender": "node scripts/prerender.mjs",
+    "build": "npm run build:client && npm run build:server && npm run prerender",
+    "typecheck": "node ../node_modules/typescript/bin/tsc --noEmit"
+  },
+  "dependencies": {
+    "hel": "file:.."
+  }
+}

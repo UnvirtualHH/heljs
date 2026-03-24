@@ -108,8 +108,37 @@ import { helMagicPlugin } from "hel/vite";
 Ein verifizierter externer Consumer liegt jetzt auch direkt im Repo:
 
 - [starter](C:/projects/hellscript/codex%20version/starter)
+- [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
 
 Der Starter wird bewusst als eigenes kleines Projekt gebaut und typgeprueft, statt nur gegen interne Source-Aliases zu laufen.
+
+`starter` ist der kleinste Client-Only-Consumer.
+
+`starter-ssr` zeigt den aktuellen SSR-Pfad als externes Projekt:
+
+- `hel/runtime` im Client-Build
+- `hel/server` im SSR-Build
+- Prerender-Schritt ueber eine kleine `entry-server.tsx`
+
+Wichtig fuer externe SSR-Consumer:
+
+- der Client-Code importiert weiterhin normal aus `hel/runtime`
+- der SSR-Build muss `hel/runtime` auf `hel/server` aliasen
+- das ist im Beispiel in [starter-ssr/vite.config.ts](C:/projects/hellscript/codex%20version/starter-ssr/vite.config.ts) bereits korrekt verdrahtet
+
+Zur schnellen Paketpruefung gibt es jetzt ausserdem:
+
+```bash
+npm run verify:package
+```
+
+Das baut das Paket und prueft danach beide externen Consumer (`starter` und `starter-ssr`) gegen die veroeffentlichte Paketoberflaeche.
+
+Wenn das Paket bereits gebaut ist, reicht auch:
+
+```bash
+npm run verify:starters
+```
 
 Wichtig:
 

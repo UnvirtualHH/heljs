@@ -12,5 +12,6 @@
     "src/framework/package/server.ts",
     "src/framework/package/vite.ts",
     "src/framework/package/jsx.ts"
-  ]
+  ],
+  "exclude": []
 }

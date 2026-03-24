@@ -35,6 +35,8 @@
     "build:package:js": "node scripts/build-package.mjs",
     "build:package:types": "tsc -p tsconfig.package.json",
     "build:package": "npm run build:package:js && npm run build:package:types",
+    "verify:starters": "npm --prefix starter install && npm --prefix starter run typecheck && npm --prefix starter run build && npm --prefix starter-ssr install && npm --prefix starter-ssr run typecheck && npm --prefix starter-ssr run build",
+    "verify:package": "node scripts/build-package.mjs && tsc -p tsconfig.package.json && npm run verify:starters",
     "prerender": "node scripts/prerender.mjs",
     "build": "npm run build:client && npm run build:server && npm run prerender",
     "bench": "vitest bench --run",
