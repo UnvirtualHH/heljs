@@ -36,9 +36,8 @@ import {
 } from "./runtime-dom";
 import {
   bindEvent,
-  canPatchNodeInPlace,
-  canPatchNodeListInPlace,
-  patchNodeInPlace,
+  tryPatchNodeInPlace,
+  tryPatchNodeListInPlace,
 } from "./runtime-patch";
 import type { Dynamic, KeyedList } from "./shared";
 
@@ -64,7 +63,13 @@ export function hasReactiveComponentProps(props: Record<string, unknown> | null)
     return false;
   }
 
-  return Object.values(props).some((value) => isDynamic(value));
+  for (const key in props) {
+    if (isDynamic(props[key])) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function resolveComponentProps(
@@ -91,62 +96,80 @@ function normalizeTextValue(value: unknown): string {
   return String(value);
 }
 
-function toNodeList(value: unknown): Node[] {
+function collectNodes(value: unknown, out: Node[]): void {
   if (value == null || value === false || value === true) {
-    return [];
+    return;
   }
 
   if (isNodeFactory(value)) {
-    return toNodeList(value.read());
+    collectNodes(value.read(), out);
+    return;
   }
 
   if (isTextBinding(value)) {
-    return [document.createTextNode(normalizeTextValue(get(value.cell as Cell<unknown>)))];
+    out.push(document.createTextNode(normalizeTextValue(get(value.cell as Cell<unknown>))));
+    return;
   }
 
   if (isTemplateFactory(value)) {
     if (isHydrating()) {
-      return toNodeList(value.read());
+      collectNodes(value.read(), out);
+      return;
     }
 
-    return toNodeList(cloneTemplate(value.html));
+    collectNodes(cloneTemplate(value.html), out);
+    return;
   }
 
   if (isKeyedList(value)) {
-    return toNodeList(value.read().map((item, index) => value.render(item, index)));
+    const items = value.read();
+    for (let i = 0; i < items.length; i += 1) {
+      collectNodes(value.render(items[i]!, i), out);
+    }
+    return;
   }
 
   if (isDynamic(value)) {
     if (value.kind === "attr") {
-      return [];
+      return;
     }
 
     if (value.kind === "text") {
-      return [document.createTextNode(normalizeTextValue(value.read()))];
+      out.push(document.createTextNode(normalizeTextValue(value.read())));
+      return;
     }
 
-    return toNodeList(value.read());
+    collectNodes(value.read(), out);
+    return;
   }
 
   if (Array.isArray(value)) {
-    const nodes: Node[] = [];
-
-    for (const item of value) {
-      nodes.push(...toNodeList(item));
+    for (let i = 0; i < value.length; i += 1) {
+      collectNodes(value[i], out);
     }
-
-    return nodes;
+    return;
   }
 
   if (value instanceof DocumentFragment) {
-    return Array.from(value.childNodes);
+    const children = value.childNodes;
+    for (let i = 0; i < children.length; i += 1) {
+      out.push(children[i]!);
+    }
+    return;
   }
 
   if (value instanceof Node) {
-    return [value];
+    out.push(value);
+    return;
   }
 
-  return [document.createTextNode(String(value))];
+  out.push(document.createTextNode(String(value)));
+}
+
+function toNodeList(value: unknown): Node[] {
+  const nodes: Node[] = [];
+  collectNodes(value, nodes);
+  return nodes;
 }
 
 function toRenderableNode(value: unknown): Node {
@@ -187,8 +210,6 @@ function mountStaticText(parent: Node, value: string): void {
   if (claimed) {
     if (claimed.data !== value) {
       warnHydrationMismatch(`text("${value}")`, claimed);
-    }
-    if (claimed.data !== value) {
       claimed.data = value;
     }
     return;
@@ -437,10 +458,7 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
     const nextValue = runWithScope(contentScope, () => read());
     const nextNodes = runWithScope(contentScope, () => toNodeList(nextValue));
 
-    if (canPatchNodeListInPlace(currentNodes, nextNodes)) {
-      for (let index = 0; index < currentNodes.length; index += 1) {
-        patchNodeInPlace(currentNodes[index]!, nextNodes[index]!);
-      }
+    if (tryPatchNodeListInPlace(currentNodes, nextNodes)) {
       disposeScope(contentScope);
       currentNodes = currentNodes.slice();
       return;
@@ -581,13 +599,12 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
 
         const scope = createScope();
         const node = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
-        const canPatchInPlace =
-          previous.node.parentNode === parent &&
-          scope.cleanups.size === 0 &&
-          canPatchNodeInPlace(previous.node, node);
 
-        if (canPatchInPlace) {
-          patchNodeInPlace(previous.node, node);
+        if (
+          previous.node.parentNode === parent &&
+          scope.cleanups.length === 0 &&
+          tryPatchNodeInPlace(previous.node, node)
+        ) {
           disposeScope(scope);
           nextEntries.push({
             item,
@@ -640,13 +657,13 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
 
       const scope = createScope();
       const node = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
-      const canPatchInPlace =
-        Boolean(previous?.node.parentNode === parent) &&
-        scope.cleanups.size === 0 &&
-        canPatchNodeInPlace(previous!.node, node);
 
-      if (canPatchInPlace && previous) {
-        patchNodeInPlace(previous.node, node);
+      if (
+        previous &&
+        previous.node.parentNode === parent &&
+        scope.cleanups.length === 0 &&
+        tryPatchNodeInPlace(previous.node, node)
+      ) {
         disposeScope(scope);
         nextEntries.push({
           item,

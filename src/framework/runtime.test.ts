@@ -450,6 +450,49 @@ describe("runtime", () => {
     expect(root.textContent).toBe("2");
   });
 
+  it("tracks store properties per object instance instead of globally by property name", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const state = store({
+      first: { title: "Alpha" },
+      second: { title: "Beta" },
+    });
+
+    mount(() => h("p", null, dynText(() => state.first.title)), root);
+    expect(root.textContent).toBe("Alpha");
+
+    state.second.title = "Beta 2";
+    await flushMicrotask();
+    expect(root.textContent).toBe("Alpha");
+
+    state.first.title = "Alpha 2";
+    await flushMicrotask();
+    expect(root.textContent).toBe("Alpha 2");
+  });
+
+  it("tracks structural store reads like Object.keys()", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const state = store({
+      todos: {
+        a: { title: "Alpha" },
+      } as Record<string, { title: string }>,
+    });
+
+    mount(() => h("p", null, dynText(() => Object.keys(state.todos).join(","))), root);
+    expect(root.textContent).toBe("a");
+
+    state.todos.b = { title: "Beta" };
+    await flushMicrotask();
+    expect(root.textContent).toBe("a,b");
+
+    delete state.todos.a;
+    await flushMicrotask();
+    expect(root.textContent).toBe("b");
+  });
+
   it("updates list-like output when store arrays mutate in place", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);

@@ -16,7 +16,7 @@ const hydratedRoots = new WeakSet<Element>();
 function removeNode(parent: Node, node: Node): void {
   parent.removeChild(node);
   if (parent.isConnected) {
-    runtimeStats.domRemovals += 1;
+    if (IS_DEV) runtimeStats.domRemovals += 1;
   }
 }
 

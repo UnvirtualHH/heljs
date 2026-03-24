@@ -1,18 +1,19 @@
 import { runtimeStats } from "./runtime-core";
 
+const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 const templateCache = new Map<string, HTMLTemplateElement>();
 
 export function appendNode(parent: Node, node: Node): void {
   parent.appendChild(node);
   if (parent.isConnected) {
-    runtimeStats.domInsertions += 1;
+    if (IS_DEV) runtimeStats.domInsertions += 1;
   }
 }
 
 export function insertNodeBefore(parent: Node, node: Node, reference: Node | null): void {
   parent.insertBefore(node, reference);
   if (parent.isConnected) {
-    runtimeStats.domInsertions += 1;
+    if (IS_DEV) runtimeStats.domInsertions += 1;
   }
 }
 
@@ -33,21 +34,21 @@ export function insertNodesBefore(parent: Node, nodes: Node[], reference: Node |
 
   parent.insertBefore(fragment, reference);
   if (parent.isConnected) {
-    runtimeStats.domInsertions += nodes.length;
+    if (IS_DEV) runtimeStats.domInsertions += nodes.length;
   }
 }
 
 export function removeNode(parent: Node, node: Node): void {
   parent.removeChild(node);
   if (parent.isConnected) {
-    runtimeStats.domRemovals += 1;
+    if (IS_DEV) runtimeStats.domRemovals += 1;
   }
 }
 
 export function replaceNode(parent: Node, next: Node, current: Node): void {
   parent.replaceChild(next, current);
   if (parent.isConnected) {
-    runtimeStats.domReplacements += 1;
+    if (IS_DEV) runtimeStats.domReplacements += 1;
   }
 }
 

@@ -1,5 +1,6 @@
 import { runtimeStats } from "./runtime-core";
 
+const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 const eventBindings = new WeakMap<HTMLElement, Map<string, EventListener>>();
 
 function isInstanceOf<T>(value: unknown, ctorName: "HTMLInputElement" | "HTMLTextAreaElement" | "HTMLSelectElement" | "HTMLOptionElement"): value is T {
@@ -54,17 +55,20 @@ function syncEventBindings(current: HTMLElement, next: HTMLElement): void {
 }
 
 function syncAttributes(current: HTMLElement, next: HTMLElement): void {
-  const currentNames = new Set(Array.from(current.getAttributeNames()));
-  const nextNames = new Set(Array.from(next.getAttributeNames()));
+  const nextNames = next.getAttributeNames();
+  const nextNameSet = new Set(nextNames);
 
-  for (const name of currentNames) {
-    if (!nextNames.has(name)) {
+  const currentNames = current.getAttributeNames();
+  for (let i = 0; i < currentNames.length; i += 1) {
+    const name = currentNames[i]!;
+    if (!nextNameSet.has(name)) {
       current.removeAttribute(name);
-      runtimeStats.attrPatches += 1;
+      if (IS_DEV) runtimeStats.attrPatches += 1;
     }
   }
 
-  for (const name of nextNames) {
+  for (let i = 0; i < nextNames.length; i += 1) {
+    const name = nextNames[i]!;
     const nextValue = next.getAttribute(name);
     if (current.getAttribute(name) !== nextValue) {
       if (nextValue === null) {
@@ -72,7 +76,7 @@ function syncAttributes(current: HTMLElement, next: HTMLElement): void {
       } else {
         current.setAttribute(name, nextValue);
       }
-      runtimeStats.attrPatches += 1;
+      if (IS_DEV) runtimeStats.attrPatches += 1;
     }
   }
 }
@@ -149,7 +153,7 @@ export function patchNodeInPlace(current: Node, next: Node): void {
     const nextText = next as Text;
     if (currentText.data !== nextText.data) {
       currentText.data = nextText.data;
-      runtimeStats.textPatches += 1;
+      if (IS_DEV) runtimeStats.textPatches += 1;
     }
     return;
   }
@@ -158,7 +162,7 @@ export function patchNodeInPlace(current: Node, next: Node): void {
     return;
   }
 
-  runtimeStats.inPlacePatches += 1;
+  if (IS_DEV) runtimeStats.inPlacePatches += 1;
   syncEventBindings(current, next);
   syncAttributes(current, next);
 
@@ -167,6 +171,64 @@ export function patchNodeInPlace(current: Node, next: Node): void {
   }
 
   syncSpecialElementState(current, next);
+}
+
+/**
+ * Single-pass: check patchability and patch in one traversal.
+ * Returns true if patched successfully, false if structures are incompatible.
+ */
+export function tryPatchNodeInPlace(current: Node, next: Node): boolean {
+  if (current.nodeType !== next.nodeType) {
+    return false;
+  }
+
+  if (current.nodeType === Node.TEXT_NODE) {
+    const currentText = current as Text;
+    const nextText = next as Text;
+    if (currentText.data !== nextText.data) {
+      currentText.data = nextText.data;
+      if (IS_DEV) runtimeStats.textPatches += 1;
+    }
+    return true;
+  }
+
+  if (!(current instanceof HTMLElement) || !(next instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (current.tagName !== next.tagName) {
+    return false;
+  }
+
+  if (current.childNodes.length !== next.childNodes.length) {
+    return false;
+  }
+
+  for (let index = 0; index < current.childNodes.length; index += 1) {
+    if (!tryPatchNodeInPlace(current.childNodes[index]!, next.childNodes[index]!)) {
+      return false;
+    }
+  }
+
+  if (IS_DEV) runtimeStats.inPlacePatches += 1;
+  syncEventBindings(current, next);
+  syncAttributes(current, next);
+  syncSpecialElementState(current, next);
+  return true;
+}
+
+export function tryPatchNodeListInPlace(currentNodes: Node[], nextNodes: Node[]): boolean {
+  if (currentNodes.length !== nextNodes.length) {
+    return false;
+  }
+
+  for (let index = 0; index < currentNodes.length; index += 1) {
+    if (!tryPatchNodeInPlace(currentNodes[index]!, nextNodes[index]!)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export function canPatchNodeListInPlace(currentNodes: Node[], nextNodes: Node[]): boolean {

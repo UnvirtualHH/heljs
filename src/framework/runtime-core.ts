@@ -22,13 +22,15 @@ import {
   isTextBinding,
 } from "./shared";
 
+const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+
 type EffectRunner = (() => void) & {
   deps: Set<Set<EffectRunner>>;
 };
 
 export type Scope = {
   parent: Scope | null;
-  cleanups: Set<() => void>;
+  cleanups: Array<() => void>;
   active: boolean;
 };
 
@@ -38,7 +40,7 @@ export interface Cell<T> {
 }
 
 type StoreState = {
-  subscribers: Set<EffectRunner>;
+  propertySubscribers: WeakMap<object, Map<string | symbol, Set<EffectRunner>>>;
   proxies: WeakMap<object, object>;
 };
 
@@ -87,24 +89,29 @@ export function resetRuntimeStats(): void {
   runtimeStats.inPlacePatches = 0;
 }
 
+let flushBuffer: EffectRunner[] = [];
+
 function flushQueue(): void {
   scheduled = false;
-  runtimeStats.flushCycles += 1;
+  if (IS_DEV) runtimeStats.flushCycles += 1;
 
   while (queue.size > 0) {
-    const jobs = Array.from(queue);
+    for (const job of queue) {
+      flushBuffer.push(job);
+    }
     queue.clear();
 
-    for (const job of jobs) {
-      job();
+    for (let i = 0; i < flushBuffer.length; i += 1) {
+      flushBuffer[i]!();
     }
+    flushBuffer.length = 0;
   }
 }
 
 function schedule(runner: EffectRunner): void {
   if (!queue.has(runner)) {
     queue.add(runner);
-    runtimeStats.scheduledEffects += 1;
+    if (IS_DEV) runtimeStats.scheduledEffects += 1;
   }
 
   if (!scheduled) {
@@ -114,7 +121,7 @@ function schedule(runner: EffectRunner): void {
 }
 
 function cleanup(runner: EffectRunner): void {
-  runtimeStats.cleanupPasses += 1;
+  if (IS_DEV) runtimeStats.cleanupPasses += 1;
 
   for (const dependency of runner.deps) {
     dependency.delete(runner);
@@ -137,7 +144,7 @@ export function untrack<T>(fn: () => T): T {
 export function createScope(): Scope {
   return {
     parent: activeScope,
-    cleanups: new Set<() => void>(),
+    cleanups: [],
     active: true,
   };
 }
@@ -147,7 +154,7 @@ export function onScopeCleanup(fn: () => void): void {
     return;
   }
 
-  activeScope.cleanups.add(fn);
+  activeScope.cleanups.push(fn);
 }
 
 export function runWithScope<T>(scope: Scope, fn: () => T): T {
@@ -168,11 +175,11 @@ export function disposeScope(scope: Scope | null): void {
 
   scope.active = false;
 
-  const cleanups = Array.from(scope.cleanups);
-  scope.cleanups.clear();
+  const cleanups = scope.cleanups;
+  scope.cleanups = [];
 
-  for (const cleanup of cleanups.reverse()) {
-    cleanup();
+  for (let i = cleanups.length - 1; i >= 0; i -= 1) {
+    cleanups[i]!();
   }
 }
 
@@ -192,7 +199,7 @@ function trackSubscribers(subscribers: Set<EffectRunner>): void {
   subscribers.add(activeEffect);
   activeEffect.deps.add(subscribers);
   if (tracked) {
-    runtimeStats.subscriptionsTracked += 1;
+    if (IS_DEV) runtimeStats.subscriptionsTracked += 1;
   }
 }
 
@@ -206,6 +213,27 @@ function isStoreObject(value: unknown): value is object {
   return typeof value === "object" && value !== null;
 }
 
+const STORE_KEYS = Symbol("hel.store.keys");
+
+function getPropertySubscribers(
+  state: StoreState,
+  target: object,
+  key: string | symbol,
+): Set<EffectRunner> {
+  let targetSubscribers = state.propertySubscribers.get(target);
+  if (!targetSubscribers) {
+    targetSubscribers = new Map<string | symbol, Set<EffectRunner>>();
+    state.propertySubscribers.set(target, targetSubscribers);
+  }
+
+  let subs = targetSubscribers.get(key);
+  if (!subs) {
+    subs = new Set<EffectRunner>();
+    targetSubscribers.set(key, subs);
+  }
+  return subs;
+}
+
 function createStoreProxy<T extends object>(target: T, state: StoreState): T {
   const existing = state.proxies.get(target);
   if (existing) {
@@ -214,18 +242,44 @@ function createStoreProxy<T extends object>(target: T, state: StoreState): T {
 
   const proxy = new Proxy(target, {
     get(currentTarget, key, receiver) {
-      trackSubscribers(state.subscribers);
+      trackSubscribers(getPropertySubscribers(state, currentTarget, key));
       const value = Reflect.get(currentTarget, key, receiver);
       return isStoreObject(value) ? createStoreProxy(value, state) : value;
     },
 
+    has(currentTarget, key) {
+      trackSubscribers(getPropertySubscribers(state, currentTarget, key));
+      return Reflect.has(currentTarget, key);
+    },
+
+    ownKeys(currentTarget) {
+      trackSubscribers(getPropertySubscribers(state, currentTarget, STORE_KEYS));
+      return Reflect.ownKeys(currentTarget);
+    },
+
     set(currentTarget, key, value, receiver) {
       const previous = Reflect.get(currentTarget, key, receiver);
+      const previousLength = Array.isArray(currentTarget) ? currentTarget.length : -1;
+      const existed = Reflect.has(currentTarget, key);
       const next = Reflect.set(currentTarget, key, value, receiver);
 
       if (next && !Object.is(previous, value)) {
-        runtimeStats.cellWrites += 1;
-        notifySubscribers(state.subscribers);
+        if (IS_DEV) runtimeStats.cellWrites += 1;
+        notifySubscribers(getPropertySubscribers(state, currentTarget, key));
+      }
+
+      if (next && !existed) {
+        notifySubscribers(getPropertySubscribers(state, currentTarget, STORE_KEYS));
+      }
+
+      if (
+        next &&
+        Array.isArray(currentTarget) &&
+        key !== "length" &&
+        currentTarget.length !== previousLength
+      ) {
+        notifySubscribers(getPropertySubscribers(state, currentTarget, "length"));
+        notifySubscribers(getPropertySubscribers(state, currentTarget, STORE_KEYS));
       }
 
       return next;
@@ -236,8 +290,13 @@ function createStoreProxy<T extends object>(target: T, state: StoreState): T {
       const next = Reflect.deleteProperty(currentTarget, key);
 
       if (next && existed) {
-        runtimeStats.cellWrites += 1;
-        notifySubscribers(state.subscribers);
+        if (IS_DEV) runtimeStats.cellWrites += 1;
+        notifySubscribers(getPropertySubscribers(state, currentTarget, key));
+        notifySubscribers(getPropertySubscribers(state, currentTarget, STORE_KEYS));
+      }
+
+      if (next && Array.isArray(currentTarget)) {
+        notifySubscribers(getPropertySubscribers(state, currentTarget, "length"));
       }
 
       return next;
@@ -250,7 +309,7 @@ function createStoreProxy<T extends object>(target: T, state: StoreState): T {
 
 export function store<T extends object>(value: T): T {
   const state: StoreState = {
-    subscribers: new Set<EffectRunner>(),
+    propertySubscribers: new WeakMap<object, Map<string | symbol, Set<EffectRunner>>>(),
     proxies: new WeakMap<object, object>(),
   };
 
@@ -258,13 +317,13 @@ export function store<T extends object>(value: T): T {
 }
 
 export function get<T>(slot: Cell<T>): T {
-  runtimeStats.cellReads += 1;
+  if (IS_DEV) runtimeStats.cellReads += 1;
   trackSubscribers(slot.subscribers);
   return slot.value;
 }
 
 export function set<T>(slot: Cell<T>, next: T): T {
-  runtimeStats.cellWrites += 1;
+  if (IS_DEV) runtimeStats.cellWrites += 1;
 
   if (Object.is(slot.value, next)) {
     return next;
@@ -277,11 +336,11 @@ export function set<T>(slot: Cell<T>, next: T): T {
 }
 
 export function effect(fn: () => void): () => void {
-  runtimeStats.effectCreations += 1;
+  if (IS_DEV) runtimeStats.effectCreations += 1;
 
   const runner = (() => {
     cleanup(runner);
-    runtimeStats.effectRuns += 1;
+    if (IS_DEV) runtimeStats.effectRuns += 1;
 
     const previous = activeEffect;
     activeEffect = runner;
