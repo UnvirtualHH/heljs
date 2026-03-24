@@ -244,6 +244,7 @@ Ziel: Von "coolem Prototyp" zu "damit kann man Dinge bauen".
   - Compiler-Pattern
   - [x] Control-Flow-Helper (`For`, `Show`)
   - [x] Helper
+  - [x] `For`-Fallback fuer leere Listen
   - Control-Flow-Komponente
 - [ ] bessere Fragment-Unterstuetzung ueber alle Pfade
 - [x] kontrollierte Form-Elemente testen und haerten

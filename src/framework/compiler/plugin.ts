@@ -841,7 +841,7 @@ function transformComponent(
       id,
       componentName,
       parameter,
-      "component parameter destructuring is not supported yet. Accept props as a plain identifier and destructure inside the function body.",
+      "component parameters other than a plain identifier are not supported yet. Accept props as a plain identifier and destructure inside the function body.",
     );
   }
 

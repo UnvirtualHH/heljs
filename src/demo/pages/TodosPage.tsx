@@ -146,17 +146,19 @@ export function TodosPage(props: TodosPageProps) {
         </div>
 
         <div class="todo-grid">
-          <For each={props.filteredTodos()} key={(todo: TodoItem) => todo.id}>
+          <For
+            each={props.filteredTodos()}
+            key={(todo: TodoItem) => todo.id}
+            fallback={
+              <div class="empty-state">
+                <strong>No tasks in this filter.</strong>
+                <p>Switch the filter or add a new task.</p>
+              </div>
+            }
+          >
             {renderTodo}
           </For>
         </div>
-
-        <Show when={props.filteredTodos().length === 0}>
-          <div class="empty-state">
-            <strong>No tasks in this filter.</strong>
-            <p>Switch the filter or add a new task.</p>
-          </div>
-        </Show>
       </section>
 
       <aside class="panel detail-panel">

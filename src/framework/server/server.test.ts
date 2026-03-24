@@ -72,6 +72,25 @@ describe("server renderer", () => {
     expect(html).not.toContain("fallback");
   });
 
+  it("renders For fallback when the list is empty", () => {
+    const html = renderToString(() =>
+      h(
+        "ul",
+        null,
+        h(
+          For,
+          {
+            each: [],
+            fallback: h("li", { class: "empty" }, "Empty"),
+          },
+          (item: { label: string }) => h("li", null, item.label),
+        ),
+      ),
+    );
+
+    expect(html).toContain('<li class="empty">Empty</li>');
+  });
+
   it("renders the current static route on the server", () => {
     const router = createRouter(
       [

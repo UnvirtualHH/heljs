@@ -168,7 +168,7 @@ Unterstuetzt sind auch:
 Nicht unterstuetzt in diesem Stand:
 
 - Destructuring bei reaktiven `let`-Deklarationen
-- Destructuring in Komponenten-Parametern
+- Komponenten-Parameter, die kein einfacher Identifier sind
 
 Bei reaktivem `let`-Destructuring wirft der Compiler jetzt bewusst einen klaren Fehler, statt still kaputten Code zu erzeugen.
 
@@ -188,6 +188,8 @@ function TodoCard(props) {
   return <article>{todo.title}</article>;
 }
 ```
+
+Default-Parameter und Rest-Parameter fuer Komponenten werden im aktuellen Stand ebenfalls bewusst mit einem klaren Compiler-Fehler blockiert.
 
 ### 3. Normale Helper-Funktionen funktionieren
 
@@ -308,6 +310,14 @@ import { For } from "@hel/runtime";
 ```
 
 Ohne `key` rendert `For` einfach ueber `map(...)`. Mit `key` nutzt es intern die keyed `list(...)`-Semantik.
+
+`For` kann ausserdem direkt einen leeren Zustand rendern:
+
+```tsx
+<For each={todos} fallback={<p>No todos yet.</p>}>
+  {(todo) => <TodoRow todo={todo} />}
+</For>
+```
 
 Fuer Branches gibt es optional auch `Show`:
 

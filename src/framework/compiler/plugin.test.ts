@@ -143,8 +143,32 @@ describe("compiler plugin", () => {
     `);
 
     expect(error).not.toBeNull();
-    expect(error?.message).toContain("component parameter destructuring is not supported yet");
+    expect(error?.message).toContain("component parameters other than a plain identifier are not supported yet");
     expect(error?.message).toContain("Component.tsx");
+    expect(error?.message).toContain("TodoCard");
+  });
+
+  it("fails loudly for component default parameters", () => {
+    const error = transformError(`
+      export function TodoCard(props = { title: "Hel" }) {
+        return <article>{props.title}</article>;
+      }
+    `);
+
+    expect(error).not.toBeNull();
+    expect(error?.message).toContain("component parameters other than a plain identifier are not supported yet");
+    expect(error?.message).toContain("TodoCard");
+  });
+
+  it("fails loudly for component rest parameters", () => {
+    const error = transformError(`
+      export function TodoCard(...props) {
+        return <article>{props.length}</article>;
+      }
+    `);
+
+    expect(error).not.toBeNull();
+    expect(error?.message).toContain("component parameters other than a plain identifier are not supported yet");
     expect(error?.message).toContain("TodoCard");
   });
 

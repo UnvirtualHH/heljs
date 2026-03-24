@@ -103,6 +103,10 @@ import {
 
 export type Router = BrowserRouter;
 
+function isDirectTextChild(value: unknown): value is string | number | bigint {
+  return typeof value === "string" || typeof value === "number" || typeof value === "bigint";
+}
+
 const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 
 export function createRouter(routes: import("../shared").RouteDefinition[], options: import("../shared").RouterOptions = {}): Router {
@@ -193,8 +197,12 @@ export function h(
   const frame = openHydrationFrame(element, `<${tag}>`);
   const deferredProps = props ? applyProps(element, props) : [];
 
-  for (const child of children) {
-    appendChild(element, child);
+  if (!claimed && children.length === 1 && isDirectTextChild(children[0])) {
+    element.textContent = String(children[0]);
+  } else {
+    for (const child of children) {
+      appendChild(element, child);
+    }
   }
 
   for (const run of deferredProps) {

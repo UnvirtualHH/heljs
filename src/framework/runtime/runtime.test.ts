@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { attr, cell, createRouter, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, store, text, tpl } from "./index";
 import {
+  createRouter as createServerRouter,
   dynBlock as serverDynBlock,
   dynText as serverDynText,
   h as serverH,
@@ -202,6 +203,39 @@ describe("runtime", () => {
     await flushMicrotask();
 
     expect(root.textContent).toBe("empty");
+  });
+
+  it("renders For fallback for empty lists and swaps to list items later", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const items = cell<Array<{ id: string; label: string }>>([]);
+
+    mount(
+      () =>
+        h(
+          "ul",
+          null,
+          h(
+            For,
+            {
+              each: dynBlock(() => get(items)),
+              key: (item: { id: string }) => item.id,
+              fallback: h("li", { class: "empty" }, "Empty"),
+            },
+            (item: { label: string }) => h("li", null, item.label),
+          ),
+        ),
+      root,
+    );
+
+    expect(root.querySelector(".empty")?.textContent).toBe("Empty");
+
+    set(items, [{ id: "a", label: "Alpha" }]);
+    await flushMicrotask();
+
+    expect(root.querySelector(".empty")).toBeNull();
+    expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Alpha"]);
   });
 
   it("navigates internal anchors through the router without a custom Link component", async () => {
@@ -1372,6 +1406,75 @@ describe("runtime", () => {
 
     expect(button?.textContent).toBe("Increment");
     expect(root.querySelector("p")?.textContent).toBe("Value: 1");
+  });
+
+  it("hydrates prerendered router markup and updates params and query after navigation", async () => {
+    window.history.replaceState(null, "", "/todos/alpha?filter=done");
+
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const serverRouter = createServerRouter(
+      [
+        {
+          path: "/todos/:id",
+          view: () =>
+            serverH(
+              "section",
+              null,
+              serverH("h2", null, `Todo ${serverRouter.params().id ?? "missing"}`),
+              serverH("p", null, `Filter ${serverRouter.query().filter ?? "all"}`),
+            ),
+        },
+      ],
+      { initialPath: "/todos/alpha?filter=done" },
+    );
+
+    root.innerHTML = renderToString(() =>
+      serverH(
+        "main",
+        null,
+        serverH("a", { href: "/todos/beta?filter=open" }, "Next"),
+        serverRouter.view(),
+      ),
+    );
+
+    const clientRouter = createRouter([
+      {
+        path: "/todos/:id",
+        view: () =>
+          h(
+            "section",
+            null,
+            h("h2", null, `Todo ${clientRouter.params().id ?? "missing"}`),
+            h("p", null, `Filter ${clientRouter.query().filter ?? "all"}`),
+          ),
+      },
+    ]);
+
+    hydrate(
+      () =>
+        h(
+          "main",
+          null,
+          h("a", { href: "/todos/beta?filter=open" }, "Next"),
+          clientRouter.view(),
+        ),
+      root,
+    );
+
+    expect(root.querySelector("h2")?.textContent).toBe("Todo alpha");
+    expect(root.querySelector("p")?.textContent).toBe("Filter done");
+
+    root
+      .querySelector("a")
+      ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    await flushMicrotask();
+
+    expect(clientRouter.params().id).toBe("beta");
+    expect(clientRouter.query().filter).toBe("open");
+    expect(root.querySelector("h2")?.textContent).toBe("Todo beta");
+    expect(root.querySelector("p")?.textContent).toBe("Filter open");
   });
 
   it("does not double-bind hydrated event listeners", () => {
