@@ -20,6 +20,22 @@ type ShowProps = {
   children?: unknown[];
 };
 
+type RouteDefinition = {
+  path: string;
+  view: () => unknown;
+};
+
+type RouterOptions = {
+  initialPath?: string;
+};
+
+export type Router = {
+  currentPath: () => string;
+  navigate: (path: string, options?: { replace?: boolean }) => void;
+  view: () => unknown;
+  isActive: (path: string) => boolean;
+};
+
 type TextBinding<T = unknown> = {
   [TEXT_BINDING]: true;
   cell: Cell<T>;
@@ -249,6 +265,51 @@ export function For<T>(rawProps: Record<string, unknown>): any {
 export function Show(rawProps: Record<string, unknown>): any {
   const props = rawProps as ShowProps;
   return unwrapControlFlowValue(props.when) ? props.children ?? null : unwrapControlFlowValue(props.fallback) ?? null;
+}
+
+function normalizeRoutePath(path: string): string {
+  if (!path) {
+    return "/";
+  }
+
+  return path.startsWith("/") ? path : `/${path.replace(/^\/+/, "")}`;
+}
+
+function findRoute(routes: RouteDefinition[], path: string): RouteDefinition | null {
+  const normalized = normalizeRoutePath(path);
+  return routes.find((route) => route.path === normalized) ?? null;
+}
+
+export function createRouter(routes: RouteDefinition[], options: RouterOptions = {}): Router {
+  let currentPath = normalizeRoutePath(options.initialPath ?? "/");
+
+  return {
+    currentPath: () => currentPath,
+    navigate: (nextPath: string) => {
+      currentPath = normalizeRoutePath(nextPath);
+    },
+    view: () => {
+      const match = findRoute(routes, currentPath);
+      if (match) {
+        return match.view();
+      }
+
+      return h(
+        "section",
+        { class: "route-miss" },
+        h("h2", null, "Not found"),
+        h("p", null, `No route matched ${currentPath}.`),
+      );
+    },
+    isActive: (path: string) => currentPath === normalizeRoutePath(path),
+  };
+}
+
+export function Link(
+  props: Record<string, unknown> | null,
+  ...children: any[]
+): Renderable {
+  return h("a", props, ...children);
 }
 
 function isDynamic(value: unknown): value is Dynamic {

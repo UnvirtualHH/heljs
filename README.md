@@ -9,6 +9,7 @@ Ziel ist Solid-artige Fine-Grained-Reaktivitaet, aber mit normalem TypeScript im
 - `let` fuer lokalen State
 - normale Funktionen und Closures
 - JSX ohne `signal()`, `effect()`, `memo()` im User-Code
+- HTML-first Routing mit normalen `<a href>`
 - direkte DOM-Updates statt VDOM-Diffing
 
 Der aktuelle Stand ist ein brauchbarer M2-Prototyp mit Client-Rendering, SSR-HTML-Output und Hydration-MVP.
@@ -283,6 +284,52 @@ Wichtige Semantik:
 - gut genug fuer kleine bis mittlere lokale Datenstrukturen
 
 Der Compiler erkennt `store(...)`-Reads in JSX und lokalen Helper-Funktionen als reaktive Abhaengigkeiten.
+
+### 9. HTML-First Router
+
+Der aktuelle Router ist bewusst klein:
+
+```tsx
+import { createRouter } from "@hel/runtime";
+
+const router = createRouter([
+  { path: "/", view: () => <Home /> },
+  { path: "/about", view: () => <About /> },
+]);
+
+return (
+  <>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/about">About</a>
+    </nav>
+    {router.view()}
+  </>
+);
+```
+
+Wichtige Semantik:
+
+- normale `<a href>`-Tags sind der Standard
+- der Router interceptet nur interne Links, die er selbst kennt
+- externe Links, Modifier-Keys und `target` bleiben normales Browser-Verhalten
+- `router.view()` liefert direkt einen renderbaren Block
+- `router.isActive("/about")` kann direkt in Props verwendet werden
+
+Beispiel:
+
+```tsx
+<a href="/about" data-active={router.isActive("/about")}>
+  About
+</a>
+```
+
+Absichtlich noch nicht drin:
+
+- Route-Params
+- nested routes
+- guards
+- loader/actions
 
 ## Was intern zu was wird
 

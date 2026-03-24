@@ -220,6 +220,10 @@ Ziel: Von "coolem Prototyp" zu "damit kann man Dinge bauen".
 ### Rendering-Features
 
 - [x] keyed List-Reconciliation
+- [x] einfacher Router-MVP
+  - normale `<a href>` als Primärpfad
+  - statische Routen
+  - History API + `popstate`
 - [ ] offizielle Listen-Story
   - Compiler-Pattern
   - [x] Control-Flow-Helper (`For`, `Show`)
@@ -250,7 +254,7 @@ Ziel: Von "coolem Prototyp" zu "damit kann man Dinge bauen".
 
 ### Gate fuer Phase 5
 
-- [ ] Mindestens eine kleine echte App laesst sich ohne Workarounds bauen
+- [x] Mindestens eine kleine echte App laesst sich ohne Workarounds bauen
 - [ ] Listen, Formulare und mehrstufige Komponentenbaeume funktionieren stabil
 
 ## Phase 6: Packaging, Release und Kompatibilitaet

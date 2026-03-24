@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dynBlock, For, h, list, node, renderToString, Show } from "./server";
+import { createRouter, dynBlock, For, h, list, node, renderToString, Show } from "./server";
 
 describe("server renderer", () => {
   it("renders block markers for dynamic regions", () => {
@@ -70,5 +70,20 @@ describe("server renderer", () => {
     expect(html).toContain("<li>Alpha</li>");
     expect(html).toContain("<li>Beta</li>");
     expect(html).not.toContain("fallback");
+  });
+
+  it("renders the current static route on the server", () => {
+    const router = createRouter(
+      [
+        { path: "/", view: () => h("h2", null, "Home") },
+        { path: "/about", view: () => h("h2", null, "About") },
+      ],
+      { initialPath: "/about" },
+    );
+
+    const html = renderToString(() => h("main", null, router.view()));
+
+    expect(html).toContain("<h2>About</h2>");
+    expect(html).not.toContain("<h2>Home</h2>");
   });
 });

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { attr, cell, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, store, text, tpl } from "./runtime";
+import { attr, cell, createRouter, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, store, text, tpl } from "./runtime";
 import {
   dynBlock as serverDynBlock,
   dynText as serverDynText,
@@ -172,6 +172,78 @@ describe("runtime", () => {
     expect(root.textContent).toBe("visible");
   });
 
+  it("renders Show children correctly when the condition is an object value", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const selected = cell<{ title: string } | null>({ title: "Active task" });
+
+    mount(
+      () =>
+        h(
+          "aside",
+          null,
+          h(
+            Show,
+            {
+              when: dynAttr(() => get(selected)),
+              fallback: h("p", null, "empty"),
+            },
+            h("section", null, h("h2", null, dynText(() => get(selected)?.title ?? "missing"))),
+          ),
+        ),
+      root,
+    );
+
+    expect(root.querySelector("h2")?.textContent).toBe("Active task");
+    expect(root.textContent).not.toContain("[object Object]");
+
+    set(selected, null);
+    await flushMicrotask();
+
+    expect(root.textContent).toBe("empty");
+  });
+
+  it("navigates internal anchors through the router without a custom Link component", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const router = createRouter([
+      { path: "/", view: () => h("h2", null, "Home") },
+      { path: "/about", view: () => h("h2", null, "About") },
+    ]);
+
+    mount(
+      () =>
+        h(
+          "main",
+          null,
+          h(
+            "nav",
+            null,
+            h("a", { href: "/", "data-active": router.isActive("/") }, "Home"),
+            h("a", { href: "/about", "data-active": router.isActive("/about") }, "About"),
+          ),
+          router.view(),
+        ),
+      root,
+    );
+
+    const links = root.querySelectorAll("a");
+    expect(root.querySelector("h2")?.textContent).toBe("Home");
+    expect(links[0]?.getAttribute("data-active")).toBe("");
+    expect(links[1]?.getAttribute("data-active")).toBeNull();
+
+    links[1]?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    await flushMicrotask();
+
+    expect(window.location.pathname).toBe("/about");
+    expect(router.currentPath()).toBe("/about");
+    expect(root.querySelector("h2")?.textContent).toBe("About");
+    expect(links[0]?.getAttribute("data-active")).toBeNull();
+    expect(links[1]?.getAttribute("data-active")).toBe("");
+  });
+
   it("renders For with keyed items through reactive props", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -332,6 +404,80 @@ describe("runtime", () => {
     await flushMicrotask();
 
     expect(textarea?.value).toBe("");
+  });
+
+  it("preserves focused textarea and select nodes during block updates", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const state = store({
+      detail: {
+        priority: "medium",
+        note: "Alpha",
+      },
+    });
+
+    mount(
+      () =>
+        h(
+          "section",
+          null,
+          dynBlock(() =>
+            h(
+              "div",
+              null,
+              h(
+                "select",
+                {
+                  value: dynAttr(() => state.detail.priority),
+                  onChange: (event: Event) => {
+                    state.detail.priority = (event.currentTarget as HTMLSelectElement).value;
+                  },
+                },
+                h("option", { value: "low" }, "Low"),
+                h("option", { value: "medium" }, "Medium"),
+                h("option", { value: "high" }, "High"),
+              ),
+              h("textarea", {
+                value: dynAttr(() => state.detail.note),
+                onInput: (event: Event) => {
+                  state.detail.note = (event.currentTarget as HTMLTextAreaElement).value;
+                },
+              }),
+            ),
+          ),
+        ),
+      root,
+    );
+
+    const selectBefore = root.querySelector("select")!;
+    const textareaBefore = root.querySelector("textarea")!;
+
+    textareaBefore.focus();
+    expect(document.activeElement).toBe(textareaBefore);
+
+    textareaBefore.value = "Beta";
+    textareaBefore.dispatchEvent(new window.Event("input", { bubbles: true }));
+    await flushMicrotask();
+
+    const selectAfterInput = root.querySelector("select")!;
+    const textareaAfterInput = root.querySelector("textarea")!;
+    expect(selectAfterInput).toBe(selectBefore);
+    expect(textareaAfterInput).toBe(textareaBefore);
+    expect(document.activeElement).toBe(textareaBefore);
+    expect(textareaAfterInput.value).toBe("Beta");
+
+    selectBefore.focus();
+    expect(document.activeElement).toBe(selectBefore);
+
+    selectBefore.value = "high";
+    selectBefore.dispatchEvent(new window.Event("change", { bubbles: true }));
+    await flushMicrotask();
+
+    const selectAfterChange = root.querySelector("select")!;
+    expect(selectAfterChange).toBe(selectBefore);
+    expect(document.activeElement).toBe(selectBefore);
+    expect(selectAfterChange.value).toBe("high");
   });
 
   it("keeps text input value in sync as a controlled property", async () => {

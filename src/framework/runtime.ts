@@ -65,6 +65,22 @@ type ShowProps = {
   children?: unknown[];
 };
 
+type RouteDefinition = {
+  path: string;
+  view: () => unknown;
+};
+
+type RouterOptions = {
+  initialPath?: string;
+};
+
+export type Router = {
+  currentPath: () => string;
+  navigate: (path: string, options?: { replace?: boolean }) => void;
+  view: () => Dynamic<unknown>;
+  isActive: (path: string) => Dynamic<boolean>;
+};
+
 const BLOCK_START = "hs:block:start";
 const BLOCK_END = "hs:block:end";
 const NODE_FACTORY = Symbol("hel.node-factory");
@@ -73,7 +89,6 @@ const ATTR_BINDING = Symbol("hel.attr-binding");
 const TEMPLATE_FACTORY = Symbol("hel.template-factory");
 const LIST = Symbol("hel.list");
 const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
-const NON_PATCHABLE_TAGS = new Set(["input", "textarea", "select", "option"]);
 
 let activeEffect: EffectRunner | null = null;
 const queue = new Set<EffectRunner>();
@@ -83,6 +98,7 @@ const hydratedRoots = new WeakSet<Element>();
 const eventBindings = new WeakMap<HTMLElement, Map<string, EventListener>>();
 const templateCache = new Map<string, HTMLTemplateElement>();
 let activeScope: Scope | null = null;
+let activeRouterCleanup: (() => void) | null = null;
 const runtimeStats = {
   effectCreations: 0,
   effectRuns: 0,
@@ -658,6 +674,156 @@ export function Show(rawProps: Record<string, unknown>): any {
   return unwrapControlFlowValue(props.when) ? props.children ?? null : unwrapControlFlowValue(props.fallback) ?? null;
 }
 
+function normalizeRoutePath(path: string): string {
+  if (!path) {
+    return "/";
+  }
+
+  try {
+    if (typeof window !== "undefined") {
+      const url = new URL(path, window.location.origin);
+      return url.pathname || "/";
+    }
+  } catch {
+    // fall through to plain normalization
+  }
+
+  if (path.startsWith("/")) {
+    return path;
+  }
+
+  return `/${path.replace(/^\/+/, "")}`;
+}
+
+function findRoute(routes: RouteDefinition[], path: string): RouteDefinition | null {
+  const normalized = normalizeRoutePath(path);
+  return routes.find((route) => route.path === normalized) ?? null;
+}
+
+function installRouterEvents(router: Router): void {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
+
+  activeRouterCleanup?.();
+
+  const onPopState = () => {
+    router.navigate(window.location.pathname, { replace: true });
+  };
+
+  const onClick = (event: MouseEvent) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const anchor = target.closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement)) {
+      return;
+    }
+
+    if (
+      anchor.hasAttribute("download") ||
+      (anchor.target && anchor.target !== "_self")
+    ) {
+      return;
+    }
+
+    const href = anchor.getAttribute("href");
+    if (!href || href.startsWith("#")) {
+      return;
+    }
+
+    const url = new URL(anchor.href, window.location.origin);
+    if (url.origin !== window.location.origin) {
+      return;
+    }
+
+    const nextPath = normalizeRoutePath(url.pathname);
+    if (!findRoute((router as { routes?: RouteDefinition[] }).routes ?? [], nextPath)) {
+      return;
+    }
+
+    event.preventDefault();
+    router.navigate(nextPath);
+  };
+
+  window.addEventListener("popstate", onPopState);
+  document.addEventListener("click", onClick);
+
+  activeRouterCleanup = () => {
+    window.removeEventListener("popstate", onPopState);
+    document.removeEventListener("click", onClick);
+  };
+}
+
+export function createRouter(routes: RouteDefinition[], options: RouterOptions = {}): Router {
+  const path = cell(
+    normalizeRoutePath(
+      options.initialPath ?? (typeof window !== "undefined" ? window.location.pathname : "/"),
+    ),
+  );
+
+  const router: Router & { routes: RouteDefinition[] } = {
+    routes,
+    currentPath: () => get(path),
+    navigate: (nextPath: string, navOptions?: { replace?: boolean }) => {
+      const normalized = normalizeRoutePath(nextPath);
+
+      if (typeof window !== "undefined") {
+        const current = normalizeRoutePath(window.location.pathname);
+        if (current !== normalized) {
+          if (navOptions?.replace) {
+            window.history.replaceState(null, "", normalized);
+          } else {
+            window.history.pushState(null, "", normalized);
+          }
+        }
+      }
+
+      set(path, normalized);
+    },
+    view: () =>
+      dynBlock(() => {
+        const current = get(path);
+        const match = findRoute(routes, current);
+        if (match) {
+          return match.view();
+        }
+
+        return h(
+          "section",
+          { class: "route-miss" },
+          h("h2", null, "Not found"),
+          h("p", null, `No route matched ${current}.`),
+        );
+      }),
+    isActive: (targetPath: string) =>
+      dynAttr(() => get(path) === normalizeRoutePath(targetPath)),
+  };
+
+  installRouterEvents(router);
+  return router;
+}
+
+export function Link(
+  props: Record<string, unknown> | null,
+  ...children: unknown[]
+): unknown {
+  return h("a", props, ...children);
+}
+
 function isDynamic(value: unknown): value is Dynamic {
   return typeof value === "object" && value !== null && DYNAMIC in value;
 }
@@ -715,14 +881,6 @@ function canPatchNodeInPlace(current: Node, next: Node): boolean {
     return false;
   }
 
-  if (NON_PATCHABLE_TAGS.has(current.tagName.toLowerCase())) {
-    return false;
-  }
-
-  if (eventBindings.has(current) || eventBindings.has(next)) {
-    return false;
-  }
-
   if (current.childNodes.length !== next.childNodes.length) {
     return false;
   }
@@ -734,6 +892,30 @@ function canPatchNodeInPlace(current: Node, next: Node): boolean {
   }
 
   return true;
+}
+
+function syncEventBindings(current: HTMLElement, next: HTMLElement): void {
+  const currentBindings = eventBindings.get(current);
+  const nextBindings = eventBindings.get(next);
+
+  if (!currentBindings && !nextBindings) {
+    return;
+  }
+
+  if (currentBindings) {
+    for (const [key, listener] of currentBindings.entries()) {
+      if (!nextBindings?.has(key)) {
+        current.removeEventListener(key.slice(2).toLowerCase(), listener);
+        currentBindings.delete(key);
+      }
+    }
+  }
+
+  if (nextBindings) {
+    for (const [key, listener] of nextBindings.entries()) {
+      bindEvent(current, key, listener);
+    }
+  }
 }
 
 function syncAttributes(current: HTMLElement, next: HTMLElement): void {
@@ -760,6 +942,42 @@ function syncAttributes(current: HTMLElement, next: HTMLElement): void {
   }
 }
 
+function syncSpecialElementState(current: HTMLElement, next: HTMLElement): void {
+  if (current instanceof HTMLInputElement && next instanceof HTMLInputElement) {
+    if (current.value !== next.value) {
+      current.value = next.value;
+    }
+
+    if (current.checked !== next.checked) {
+      current.checked = next.checked;
+    }
+
+    return;
+  }
+
+  if (current instanceof HTMLTextAreaElement && next instanceof HTMLTextAreaElement) {
+    if (current.value !== next.value) {
+      current.value = next.value;
+    }
+
+    return;
+  }
+
+  if (current instanceof HTMLSelectElement && next instanceof HTMLSelectElement) {
+    if (current.value !== next.value) {
+      current.value = next.value;
+    }
+
+    return;
+  }
+
+  if (current instanceof HTMLOptionElement && next instanceof HTMLOptionElement) {
+    if (current.selected !== next.selected) {
+      current.selected = next.selected;
+    }
+  }
+}
+
 function patchNodeInPlace(current: Node, next: Node): void {
   if (current.nodeType === Node.TEXT_NODE && next.nodeType === Node.TEXT_NODE) {
     const currentText = current as Text;
@@ -776,11 +994,14 @@ function patchNodeInPlace(current: Node, next: Node): void {
   }
 
   runtimeStats.inPlacePatches += 1;
+  syncEventBindings(current, next);
   syncAttributes(current, next);
 
   for (let index = 0; index < current.childNodes.length; index += 1) {
     patchNodeInPlace(current.childNodes[index]!, next.childNodes[index]!);
   }
+
+  syncSpecialElementState(current, next);
 }
 
 function canPatchNodeListInPlace(currentNodes: Node[], nextNodes: Node[]): boolean {
@@ -842,6 +1063,38 @@ function toNodeList(value: unknown): Node[] {
     return [];
   }
 
+  if (isNodeFactory(value)) {
+    return toNodeList(value.read());
+  }
+
+  if (isTextBinding(value)) {
+    return [document.createTextNode(normalizeTextValue(get(value.cell)))];
+  }
+
+  if (isTemplateFactory(value)) {
+    if (isHydrating()) {
+      return toNodeList(value.read());
+    }
+
+    return toNodeList(cloneTemplate(value.html));
+  }
+
+  if (isKeyedList(value)) {
+    return toNodeList(value.read().map((item, index) => value.render(item, index)));
+  }
+
+  if (isDynamic(value)) {
+    if (value.kind === "attr") {
+      return [];
+    }
+
+    if (value.kind === "text") {
+      return [document.createTextNode(normalizeTextValue(value.read()))];
+    }
+
+    return toNodeList(value.read());
+  }
+
   if (Array.isArray(value)) {
     const nodes: Node[] = [];
 
@@ -851,11 +1104,6 @@ function toNodeList(value: unknown): Node[] {
 
     return nodes;
   }
-
-  if (isKeyedList(value)) {
-    return toNodeList(value.read().map((item, index) => value.render(item, index)));
-  }
-
   if (value instanceof DocumentFragment) {
     return Array.from(value.childNodes);
   }
