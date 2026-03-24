@@ -281,6 +281,79 @@ describe("runtime", () => {
     expect(window.location.pathname).toBe("/todos/explore-routing");
   });
 
+  it("tracks query parameters separately from the current path", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const router = createRouter(
+      [
+        {
+          path: "/todos",
+          view: () => h("h2", null, `Filter ${router.query().filter ?? "all"}`),
+        },
+      ],
+      { initialPath: "/todos?filter=done" },
+    );
+
+    mount(
+      () =>
+        h(
+          "main",
+          null,
+          h("a", { href: "/todos?filter=open", "data-active": router.isActive("/todos") }, "Open"),
+          router.view(),
+        ),
+      root,
+    );
+
+    expect(router.currentPath()).toBe("/todos");
+    expect(router.query().filter).toBe("done");
+    expect(root.querySelector("h2")?.textContent).toBe("Filter done");
+    expect(root.querySelector("a")?.getAttribute("data-active")).toBe("");
+
+    root
+      .querySelector("a")
+      ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    await flushMicrotask();
+
+    expect(router.currentPath()).toBe("/todos");
+    expect(router.query().filter).toBe("open");
+    expect(root.querySelector("h2")?.textContent).toBe("Filter open");
+    expect(window.location.pathname).toBe("/todos");
+    expect(window.location.search).toBe("?filter=open");
+  });
+
+  it("supports history-style numeric navigation without replacing anchor routing", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    window.history.replaceState(null, "", "/");
+
+    const goSpy = vi.spyOn(window.history, "go");
+    const router = createRouter(
+      [
+        { path: "/", view: () => h("h2", null, "Home") },
+        { path: "/about", view: () => h("h2", null, "About") },
+      ],
+      { initialPath: "/" },
+    );
+
+    mount(() => h("main", null, router.view()), root);
+
+    router.navigate("/about");
+    await flushMicrotask();
+    expect(root.querySelector("h2")?.textContent).toBe("About");
+
+    window.history.replaceState(null, "", "/");
+    router.navigate(-1);
+    expect(goSpy).toHaveBeenCalledWith(-1);
+
+    window.dispatchEvent(new window.PopStateEvent("popstate"));
+    await flushMicrotask();
+
+    expect(router.currentPath()).toBe("/");
+    expect(root.querySelector("h2")?.textContent).toBe("Home");
+  });
+
   it("keeps focused inputs stable when router view contains reactive store state", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);

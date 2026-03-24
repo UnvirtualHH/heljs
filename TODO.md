@@ -202,7 +202,7 @@ Ziel: Das Framework soll fuer Nutzer vorhersehbar werden.
   - Vite-Plugin
   - SSR
 - [ ] Fehler- und Warnformat standardisieren
-- [ ] Router-API fuer Params und spaeter Query bewusst klein halten
+- [ ] Router-API fuer Params und Query bewusst klein halten
 
 ### TypeScript
 

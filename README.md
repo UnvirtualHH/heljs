@@ -317,6 +317,8 @@ Wichtige Semantik:
 - `router.view()` liefert direkt einen renderbaren Block
 - `router.isActive("/about")` kann direkt in Props verwendet werden
 - `router.params()` liefert Route-Parameter fuer den aktuell gematchten Pfad
+- `router.query()` liefert die aktuellen Query-Parameter als einfaches Objekt
+- `router.navigate(-1)` und `router.navigate(1)` reichen an die Browser-History durch
 - JSX-Komponenten mit reaktiven Props laufen im aktuellen Compilerpfad wieder stabil, auch fuer Formular-Subtrees
 
 Beispiel fuer Params:
@@ -326,6 +328,22 @@ const router = createRouter([
   { path: "/todos", view: () => <Todos /> },
   { path: "/todos/:id", view: () => <TodoDetail id={router.params().id} /> },
 ]);
+```
+
+Beispiel fuer Query-Parameter:
+
+```tsx
+const router = createRouter([
+  { path: "/todos", view: () => <Todos filter={router.query().filter ?? "all"} /> },
+]);
+```
+
+Beispiel fuer History-Convenience:
+
+```tsx
+<button type="button" onClick={() => router.navigate(-1)}>
+  Back
+</button>
 ```
 
 Beispiel:
@@ -341,7 +359,6 @@ Absichtlich noch nicht drin:
 - nested routes
 - guards
 - loader/actions
-- Query-Parameter als offizielle API
 
 ## Was intern zu was wird
 

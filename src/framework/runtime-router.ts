@@ -3,6 +3,7 @@ import {
   findRoute,
   matchRoutePath,
   normalizeRoutePath,
+  parseRouteLocation,
   type RouteDefinition,
   type RouterOptions,
 } from "./shared";
@@ -11,7 +12,8 @@ import type { Dynamic } from "./shared";
 export type BrowserRouter = {
   currentPath: () => string;
   params: () => Record<string, string>;
-  navigate: (path: string, options?: { replace?: boolean }) => void;
+  query: () => Record<string, string>;
+  navigate: (target: string | number, options?: { replace?: boolean }) => void;
   view: () => Dynamic<unknown>;
   isActive: (path: string) => Dynamic<boolean>;
 };
@@ -27,38 +29,53 @@ export function createBrowserRouter(
   options: RouterOptions = {},
   renderNotFound: (currentPath: string) => unknown,
 ): BrowserRouter {
-  const initialPath = normalizeRoutePath(
-    options.initialPath ?? (typeof window !== "undefined" ? window.location.pathname : "/"),
+  const initialLocation = parseRouteLocation(
+    options.initialPath ??
+      (typeof window !== "undefined"
+        ? `${window.location.pathname}${window.location.search}`
+        : "/"),
   );
-  const initialMatch = findRoute(routes, initialPath);
-  const path = cell(initialPath);
+  const initialMatch = findRoute(routes, initialLocation.path);
+  const path = cell(initialLocation.path);
   const params = cell<Record<string, string>>(initialMatch?.params ?? {});
+  const query = cell<Record<string, string>>(initialLocation.query);
 
   const router: InstallableRouter = {
     routes,
     currentPath: () => get(path),
     params: () => get(params),
-    navigate: (nextPath: string, navOptions?: { replace?: boolean }) => {
-      const normalized = normalizeRoutePath(nextPath);
-      const nextMatch = findRoute(routes, normalized);
+    query: () => get(query),
+    navigate: (target: string | number, navOptions?: { replace?: boolean }) => {
+      if (typeof target === "number") {
+        if (typeof window !== "undefined") {
+          window.history.go(target);
+        }
+        return;
+      }
+
+      const nextLocation = parseRouteLocation(target);
+      const nextMatch = findRoute(routes, nextLocation.path);
 
       if (typeof window !== "undefined") {
-        const current = normalizeRoutePath(window.location.pathname);
-        if (current !== normalized) {
+        const current = `${window.location.pathname}${window.location.search}`;
+        const nextUrl = `${nextLocation.path}${new URLSearchParams(nextLocation.query).toString() ? `?${new URLSearchParams(nextLocation.query).toString()}` : ""}`;
+        if (current !== nextUrl) {
           if (navOptions?.replace) {
-            window.history.replaceState(null, "", normalized);
+            window.history.replaceState(null, "", nextUrl);
           } else {
-            window.history.pushState(null, "", normalized);
+            window.history.pushState(null, "", nextUrl);
           }
         }
       }
 
-      set(path, normalized);
+      set(path, nextLocation.path);
       set(params, nextMatch?.params ?? {});
+      set(query, nextLocation.query);
     },
     view: () =>
       dynBlock(() => {
         const current = get(path);
+        get(query);
         const match = findRoute(routes, current);
         if (match) {
           return untrack(() => match.route.view());
@@ -129,7 +146,7 @@ function installRouterEvents(router: InstallableRouter): void {
   };
 
   const onPopState = () => {
-    router.navigate(window.location.pathname, { replace: true });
+    router.navigate(`${window.location.pathname}${window.location.search}`, { replace: true });
   };
 
   document.addEventListener("click", onClick);

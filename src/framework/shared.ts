@@ -67,6 +67,11 @@ export type RouteMatch = {
   params: Record<string, string>;
 };
 
+export type RouteLocation = {
+  path: string;
+  query: Record<string, string>;
+};
+
 export type RouterOptions = {
   initialPath?: string;
 };
@@ -110,6 +115,29 @@ export function normalizeRoutePath(path: string): string {
   }
 
   return path.startsWith("/") ? path : `/${path.replace(/^\/+/, "")}`;
+}
+
+export function parseRouteLocation(input: string): RouteLocation {
+  if (!input) {
+    return { path: "/", query: {} };
+  }
+
+  try {
+    const base =
+      typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "http://hel.local";
+    const url = new URL(input, base);
+    return {
+      path: url.pathname || "/",
+      query: Object.fromEntries(url.searchParams.entries()),
+    };
+  } catch {
+    const [rawPath, rawQuery = ""] = input.split("?", 2);
+    const path = normalizeRoutePath(rawPath || "/");
+    const query = Object.fromEntries(new URLSearchParams(rawQuery).entries());
+    return { path, query };
+  }
 }
 
 export function splitRoutePath(path: string): string[] {

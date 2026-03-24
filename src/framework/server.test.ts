@@ -101,4 +101,34 @@ describe("server renderer", () => {
     expect(html).toContain("<h2>Todo claim-dom</h2>");
     expect(router.params().id).toBe("claim-dom");
   });
+
+  it("renders query-dependent routes while keeping the current path stable on the server", () => {
+    const router = createRouter(
+      [
+        { path: "/todos", view: () => h("h2", null, `Filter ${router.query().filter ?? "all"}`) },
+      ],
+      { initialPath: "/todos?filter=done" },
+    );
+
+    const html = renderToString(() => h("main", null, router.view()));
+
+    expect(html).toContain("<h2>Filter done</h2>");
+    expect(router.currentPath()).toBe("/todos");
+    expect(router.query().filter).toBe("done");
+  });
+
+  it("ignores numeric navigation on the server", () => {
+    const router = createRouter(
+      [
+        { path: "/", view: () => h("h2", null, "Home") },
+        { path: "/about", view: () => h("h2", null, "About") },
+      ],
+      { initialPath: "/about" },
+    );
+
+    router.navigate(-1);
+
+    expect(router.currentPath()).toBe("/about");
+    expect(renderToString(() => h("main", null, router.view()))).toContain("<h2>About</h2>");
+  });
 });

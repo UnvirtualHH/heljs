@@ -2,6 +2,7 @@ import {
   findRoute,
   matchRoutePath,
   normalizeRoutePath,
+  parseRouteLocation,
   type RouteDefinition,
   type RouterOptions,
 } from "./shared";
@@ -9,7 +10,8 @@ import {
 export type StaticRouter = {
   currentPath: () => string;
   params: () => Record<string, string>;
-  navigate: (path: string, options?: { replace?: boolean }) => void;
+  query: () => Record<string, string>;
+  navigate: (target: string | number, options?: { replace?: boolean }) => void;
   view: () => unknown;
   isActive: (path: string) => boolean;
 };
@@ -19,15 +21,23 @@ export function createStaticRouter(
   options: RouterOptions = {},
   renderNotFound: (currentPath: string) => unknown,
 ): StaticRouter {
-  let currentPath = normalizeRoutePath(options.initialPath ?? "/");
+  const initialLocation = parseRouteLocation(options.initialPath ?? "/");
+  let currentPath = normalizeRoutePath(initialLocation.path);
   let currentParams = findRoute(routes, currentPath)?.params ?? {};
+  let currentQuery = initialLocation.query;
 
   return {
     currentPath: () => currentPath,
     params: () => currentParams,
-    navigate: (nextPath: string) => {
-      currentPath = normalizeRoutePath(nextPath);
+    query: () => currentQuery,
+    navigate: (target: string | number) => {
+      if (typeof target === "number") {
+        return;
+      }
+      const nextLocation = parseRouteLocation(target);
+      currentPath = normalizeRoutePath(nextLocation.path);
       currentParams = findRoute(routes, currentPath)?.params ?? {};
+      currentQuery = nextLocation.query;
     },
     view: () => {
       const match = findRoute(routes, currentPath);
