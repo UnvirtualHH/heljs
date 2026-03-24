@@ -31,6 +31,8 @@ Ziel: Reaktivitaet, DOM-Updates, SSR und Hydration muessen in den Kernfaellen de
 - [x] Destructuring-Strategie festlegen
   - entweder sauber implementieren
   - oder explizit als Fehler mit klarer Compiler-Meldung blocken
+- [x] Komponenten-Parameter-Destructuring vorerst explizit blocken
+  - bis Props-Tracking dafuer wirklich korrekt definiert ist
 - [ ] Offizielle Escape-Hatches einfuehren
   - `noTrack(...)` oder Compiler-Pragma
   - dokumentierte Semantik fuer Hot Paths und Fremdobjekte

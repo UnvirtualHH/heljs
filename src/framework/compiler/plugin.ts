@@ -834,7 +834,15 @@ function transformComponent(
   for (const parameter of functionPath.node.params) {
     if (t.isIdentifier(parameter)) {
       reactivePropNames.add(parameter.name);
+      continue;
     }
+
+    compilerError(
+      id,
+      componentName,
+      parameter,
+      "component parameter destructuring is not supported yet. Accept props as a plain identifier and destructure inside the function body.",
+    );
   }
 
   for (const statementPath of bodyPath.get("body")) {

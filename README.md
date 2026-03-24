@@ -168,8 +168,26 @@ Unterstuetzt sind auch:
 Nicht unterstuetzt in diesem Stand:
 
 - Destructuring bei reaktiven `let`-Deklarationen
+- Destructuring in Komponenten-Parametern
 
 Bei reaktivem `let`-Destructuring wirft der Compiler jetzt bewusst einen klaren Fehler, statt still kaputten Code zu erzeugen.
+
+Dasselbe gilt aktuell fuer:
+
+```tsx
+function TodoCard({ todo }) {
+  return <article>{todo.title}</article>;
+}
+```
+
+Im aktuellen Stand sollst du stattdessen ein `props`-Identifier annehmen und innerhalb der Funktion destructuren:
+
+```tsx
+function TodoCard(props) {
+  const { todo } = props;
+  return <article>{todo.title}</article>;
+}
+```
 
 ### 3. Normale Helper-Funktionen funktionieren
 

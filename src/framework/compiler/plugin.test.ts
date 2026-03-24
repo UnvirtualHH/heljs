@@ -135,6 +135,19 @@ describe("compiler plugin", () => {
     expect(error?.message).toContain("Counter");
   });
 
+  it("fails loudly for component parameter destructuring", () => {
+    const error = transformError(`
+      export function TodoCard({ todo, selectedId }) {
+        return <article data-selected={selectedId === todo.id}>{selectedId}</article>;
+      }
+    `);
+
+    expect(error).not.toBeNull();
+    expect(error?.message).toContain("component parameter destructuring is not supported yet");
+    expect(error?.message).toContain("Component.tsx");
+    expect(error?.message).toContain("TodoCard");
+  });
+
   it("treats store reads in jsx as reactive dependencies", () => {
     const output = transform(`
       import { store } from "@hel/runtime";
