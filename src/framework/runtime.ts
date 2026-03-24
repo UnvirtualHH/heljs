@@ -60,6 +60,7 @@ const ATTR_BINDING = Symbol("hel.attr-binding");
 const TEMPLATE_FACTORY = Symbol("hel.template-factory");
 const LIST = Symbol("hel.list");
 const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+const NON_PATCHABLE_TAGS = new Set(["input", "textarea", "select", "option"]);
 
 let activeEffect: EffectRunner | null = null;
 const queue = new Set<EffectRunner>();
@@ -69,9 +70,98 @@ const hydratedRoots = new WeakSet<Element>();
 const eventBindings = new WeakMap<HTMLElement, Map<string, EventListener>>();
 const templateCache = new Map<string, HTMLTemplateElement>();
 let activeScope: Scope | null = null;
+const runtimeStats = {
+  effectCreations: 0,
+  effectRuns: 0,
+  cleanupPasses: 0,
+  scheduledEffects: 0,
+  flushCycles: 0,
+  cellReads: 0,
+  cellWrites: 0,
+  subscriptionsTracked: 0,
+  domInsertions: 0,
+  domRemovals: 0,
+  domReplacements: 0,
+  attrPatches: 0,
+  textPatches: 0,
+  inPlacePatches: 0,
+};
+
+export type RuntimeStats = typeof runtimeStats;
+
+export function getRuntimeStats(): RuntimeStats {
+  return { ...runtimeStats };
+}
+
+export function resetRuntimeStats(): void {
+  runtimeStats.effectCreations = 0;
+  runtimeStats.effectRuns = 0;
+  runtimeStats.cleanupPasses = 0;
+  runtimeStats.scheduledEffects = 0;
+  runtimeStats.flushCycles = 0;
+  runtimeStats.cellReads = 0;
+  runtimeStats.cellWrites = 0;
+  runtimeStats.subscriptionsTracked = 0;
+  runtimeStats.domInsertions = 0;
+  runtimeStats.domRemovals = 0;
+  runtimeStats.domReplacements = 0;
+  runtimeStats.attrPatches = 0;
+  runtimeStats.textPatches = 0;
+  runtimeStats.inPlacePatches = 0;
+}
+
+function appendNode(parent: Node, node: Node): void {
+  parent.appendChild(node);
+  if (parent.isConnected) {
+    runtimeStats.domInsertions += 1;
+  }
+}
+
+function insertNodeBefore(parent: Node, node: Node, reference: Node | null): void {
+  parent.insertBefore(node, reference);
+  if (parent.isConnected) {
+    runtimeStats.domInsertions += 1;
+  }
+}
+
+function insertNodesBefore(parent: Node, nodes: Node[], reference: Node | null): void {
+  if (nodes.length === 0) {
+    return;
+  }
+
+  if (nodes.length === 1) {
+    insertNodeBefore(parent, nodes[0]!, reference);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const node of nodes) {
+    fragment.appendChild(node);
+  }
+
+  parent.insertBefore(fragment, reference);
+  if (parent.isConnected) {
+    runtimeStats.domInsertions += nodes.length;
+  }
+}
+
+function removeNode(parent: Node, node: Node): void {
+  parent.removeChild(node);
+  if (parent.isConnected) {
+    runtimeStats.domRemovals += 1;
+  }
+}
+
+function replaceNode(parent: Node, next: Node, current: Node): void {
+  parent.replaceChild(next, current);
+  if (parent.isConnected) {
+    runtimeStats.domReplacements += 1;
+  }
+}
 
 function flushQueue(): void {
   scheduled = false;
+  runtimeStats.flushCycles += 1;
 
   while (queue.size > 0) {
     const jobs = Array.from(queue);
@@ -84,7 +174,10 @@ function flushQueue(): void {
 }
 
 function schedule(runner: EffectRunner): void {
-  queue.add(runner);
+  if (!queue.has(runner)) {
+    queue.add(runner);
+    runtimeStats.scheduledEffects += 1;
+  }
 
   if (!scheduled) {
     scheduled = true;
@@ -93,6 +186,8 @@ function schedule(runner: EffectRunner): void {
 }
 
 function cleanup(runner: EffectRunner): void {
+  runtimeStats.cleanupPasses += 1;
+
   for (const dependency of runner.deps) {
     dependency.delete(runner);
   }
@@ -265,7 +360,7 @@ function clearRemainingHydrationNodes(frame: HydrationFrame): void {
   while (frame.current && frame.current !== frame.boundary) {
     const node = frame.current;
     frame.current = node.nextSibling as ChildNode | null;
-    frame.parent.removeChild(node);
+    removeNode(frame.parent, node);
   }
 }
 
@@ -298,15 +393,23 @@ export function cell<T>(value: T): Cell<T> {
 }
 
 export function get<T>(slot: Cell<T>): T {
+  runtimeStats.cellReads += 1;
+
   if (activeEffect) {
+    const tracked = !slot.subscribers.has(activeEffect);
     slot.subscribers.add(activeEffect);
     activeEffect.deps.add(slot.subscribers);
+    if (tracked) {
+      runtimeStats.subscriptionsTracked += 1;
+    }
   }
 
   return slot.value;
 }
 
 export function set<T>(slot: Cell<T>, next: T): T {
+  runtimeStats.cellWrites += 1;
+
   if (Object.is(slot.value, next)) {
     return next;
   }
@@ -321,8 +424,11 @@ export function set<T>(slot: Cell<T>, next: T): T {
 }
 
 export function effect(fn: () => void): () => void {
+  runtimeStats.effectCreations += 1;
+
   const runner = (() => {
     cleanup(runner);
+    runtimeStats.effectRuns += 1;
 
     const previous = activeEffect;
     activeEffect = runner;
@@ -455,6 +561,105 @@ function cloneTemplate(html: string): Node {
   return fragment;
 }
 
+function canPatchNodeInPlace(current: Node, next: Node): boolean {
+  if (current.nodeType !== next.nodeType) {
+    return false;
+  }
+
+  if (current.nodeType === Node.TEXT_NODE) {
+    return true;
+  }
+
+  if (!(current instanceof HTMLElement) || !(next instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (current.tagName !== next.tagName) {
+    return false;
+  }
+
+  if (NON_PATCHABLE_TAGS.has(current.tagName.toLowerCase())) {
+    return false;
+  }
+
+  if (eventBindings.has(current) || eventBindings.has(next)) {
+    return false;
+  }
+
+  if (current.childNodes.length !== next.childNodes.length) {
+    return false;
+  }
+
+  for (let index = 0; index < current.childNodes.length; index += 1) {
+    if (!canPatchNodeInPlace(current.childNodes[index]!, next.childNodes[index]!)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function syncAttributes(current: HTMLElement, next: HTMLElement): void {
+  const currentNames = new Set(Array.from(current.getAttributeNames()));
+  const nextNames = new Set(Array.from(next.getAttributeNames()));
+
+  for (const name of currentNames) {
+    if (!nextNames.has(name)) {
+      current.removeAttribute(name);
+      runtimeStats.attrPatches += 1;
+    }
+  }
+
+  for (const name of nextNames) {
+    const nextValue = next.getAttribute(name);
+    if (current.getAttribute(name) !== nextValue) {
+      if (nextValue === null) {
+        current.removeAttribute(name);
+      } else {
+        current.setAttribute(name, nextValue);
+      }
+      runtimeStats.attrPatches += 1;
+    }
+  }
+}
+
+function patchNodeInPlace(current: Node, next: Node): void {
+  if (current.nodeType === Node.TEXT_NODE && next.nodeType === Node.TEXT_NODE) {
+    const currentText = current as Text;
+    const nextText = next as Text;
+    if (currentText.data !== nextText.data) {
+      currentText.data = nextText.data;
+      runtimeStats.textPatches += 1;
+    }
+    return;
+  }
+
+  if (!(current instanceof HTMLElement) || !(next instanceof HTMLElement)) {
+    return;
+  }
+
+  runtimeStats.inPlacePatches += 1;
+  syncAttributes(current, next);
+
+  for (let index = 0; index < current.childNodes.length; index += 1) {
+    patchNodeInPlace(current.childNodes[index]!, next.childNodes[index]!);
+  }
+}
+
+function canPatchNodeListInPlace(currentNodes: Node[], nextNodes: Node[]): boolean {
+  if (currentNodes.length !== nextNodes.length) {
+    return false;
+  }
+
+  for (let index = 0; index < currentNodes.length; index += 1) {
+    if (!canPatchNodeInPlace(currentNodes[index]!, nextNodes[index]!)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function resolveComponentPropValue(value: unknown): unknown {
   if (isDynamic(value)) {
     return value.read();
@@ -569,7 +774,7 @@ function mountStaticText(parent: Node, value: string): void {
   if (currentHydrationFrame(parent)?.current) {
     bailHydration(parent, `text("${value}")`);
   }
-  parent.appendChild(document.createTextNode(value));
+  appendNode(parent, document.createTextNode(value));
 }
 
 function mountTextSlot(parent: Node, read: () => unknown): void {
@@ -580,7 +785,7 @@ function mountTextSlot(parent: Node, read: () => unknown): void {
   const text = claimed ?? document.createTextNode("");
 
   if (!claimed) {
-    parent.appendChild(text);
+    appendNode(parent, text);
   }
 
   let previous = claimed ? text.data : "";
@@ -603,7 +808,7 @@ function mountTextBinding(parent: Node, cell: Cell<unknown>): void {
   const text = claimed ?? document.createTextNode("");
 
   if (!claimed) {
-    parent.appendChild(text);
+    appendNode(parent, text);
   }
 
   let previous = claimed ? text.data : "";
@@ -682,11 +887,11 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
     }
     start = document.createComment(BLOCK_START);
     end = document.createComment(BLOCK_END);
-    parent.appendChild(start);
-    parent.appendChild(end);
+    appendNode(parent, start);
+    appendNode(parent, end);
   } else if (!end) {
     end = document.createComment(BLOCK_END);
-    parent.appendChild(end);
+    appendNode(parent, end);
   }
 
   effect(() => {
@@ -710,15 +915,32 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
     const nextValue = runWithScope(contentScope, () => read());
     const nextNodes = runWithScope(contentScope, () => toNodeList(nextValue));
 
+    if (canPatchNodeListInPlace(currentNodes, nextNodes)) {
+      for (let index = 0; index < currentNodes.length; index += 1) {
+        patchNodeInPlace(currentNodes[index]!, nextNodes[index]!);
+      }
+      disposeScope(contentScope);
+      currentNodes = currentNodes.slice();
+      return;
+    }
+
+    if (
+      currentNodes.length === 1 &&
+      nextNodes.length === 1 &&
+      currentNodes[0]!.parentNode === parent
+    ) {
+      replaceNode(parent, nextNodes[0]!, currentNodes[0]!);
+      currentNodes = nextNodes;
+      return;
+    }
+
     for (const node of currentNodes) {
       if (node.parentNode === parent) {
-        parent.removeChild(node);
+        removeNode(parent, node);
       }
     }
 
-    for (const node of nextNodes) {
-      parent.insertBefore(node, end!);
-    }
+    insertNodesBefore(parent, nextNodes, end!);
 
     currentNodes = nextNodes;
   });
@@ -755,11 +977,11 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
     }
     start = document.createComment(BLOCK_START);
     end = document.createComment(BLOCK_END);
-    parent.appendChild(start);
-    parent.appendChild(end);
+    appendNode(parent, start);
+    appendNode(parent, end);
   } else if (!end) {
     end = document.createComment(BLOCK_END);
-    parent.appendChild(end);
+    appendNode(parent, end);
   }
 
   effect(() => {
@@ -771,7 +993,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
         warnHydrationMismatch(`list(${items.length})`, start);
         for (const node of nodes) {
           if (node.parentNode === parent) {
-            parent.removeChild(node);
+            removeNode(parent, node);
           }
         }
         hydrated = false;
@@ -791,6 +1013,32 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
     }
 
     const items = binding.read();
+    if (currentEntries.length === 0) {
+      if (items.length === 0) {
+        return;
+      }
+
+      const nextEntries: Array<ListEntry<T>> = [];
+      const freshNodes: Node[] = [];
+
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index]!;
+        const scope = createScope();
+        const node = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
+        freshNodes.push(node);
+        nextEntries.push({
+          item,
+          key: binding.key(item, index),
+          node,
+          scope,
+        });
+      }
+
+      insertNodesBefore(parent, freshNodes, end!);
+      currentEntries = nextEntries;
+      return;
+    }
+
     const previousByKey = new Map<string | number, ListEntry<T>>();
 
     for (const entry of currentEntries) {
@@ -815,8 +1063,25 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
 
       const scope = createScope();
       const node = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
+      const canPatchInPlace =
+        Boolean(previous?.node.parentNode === parent) &&
+        scope.cleanups.size === 0 &&
+        canPatchNodeInPlace(previous!.node, node);
+
+      if (canPatchInPlace && previous) {
+        patchNodeInPlace(previous.node, node);
+        disposeScope(scope);
+        nextEntries.push({
+          item,
+          key,
+          node: previous.node,
+          scope: previous.scope,
+        });
+        continue;
+      }
+
       if (previous?.node.parentNode === parent) {
-        parent.replaceChild(node, previous.node);
+        replaceNode(parent, node, previous.node);
         disposeScope(previous.scope);
       }
 
@@ -830,20 +1095,44 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
 
     for (const entry of previousByKey.values()) {
       if (entry.node.parentNode === parent) {
-        parent.removeChild(entry.node);
+        removeNode(parent, entry.node);
       }
       disposeScope(entry.scope);
     }
 
     let anchor: Node = start!;
+    let pendingInsertions: Node[] = [];
+    let pendingReference: Node | null = end!;
+
+    const flushPendingInsertions = (): void => {
+      if (pendingInsertions.length === 0) {
+        return;
+      }
+
+      insertNodesBefore(parent, pendingInsertions, pendingReference);
+      pendingInsertions = [];
+    };
 
     for (const entry of nextEntries) {
       const expectedNextSibling = anchor.nextSibling;
-      if (expectedNextSibling !== entry.node) {
-        parent.insertBefore(entry.node, expectedNextSibling ?? end!);
+      if (expectedNextSibling === entry.node) {
+        flushPendingInsertions();
+        anchor = entry.node;
+        continue;
       }
+
+      if (entry.node.parentNode !== parent) {
+        pendingInsertions.push(entry.node);
+        pendingReference = expectedNextSibling ?? end!;
+      } else {
+        flushPendingInsertions();
+        insertNodeBefore(parent, entry.node, expectedNextSibling ?? end!);
+      }
+
       anchor = entry.node;
     }
+
+    flushPendingInsertions();
 
     currentEntries = nextEntries;
   });
@@ -895,7 +1184,7 @@ function appendChild(parent: Node, value: unknown): void {
       return;
     }
 
-    parent.appendChild(cloneTemplate(value.html));
+    appendNode(parent, cloneTemplate(value.html));
     return;
   }
 
@@ -920,7 +1209,7 @@ function appendChild(parent: Node, value: unknown): void {
 
   if (value instanceof Node) {
     if (value.parentNode !== parent) {
-      parent.appendChild(value);
+      appendNode(parent, value);
     }
     return;
   }

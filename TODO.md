@@ -142,8 +142,14 @@ Ziel: Nicht Solid-Level, aber klar besser als ein naiver DOM-Ansatz.
   - heute oft kompletter Slot-Replacement
   - spaeter kleinere DOM-Mutationen
   - [x] keyed Listen bei stabilem Order-Update ohne unnötige Re-Inserts platzieren
+  - [x] keyed Listen bei gleicher Struktur in-place patchen statt Root-Replace
+  - [x] allgemeiner Block-Fast-Path fuer paarweise patchbare Node-Listen
 - [ ] Internes Batch-Modell haerten
+  - [x] redundante Re-Schedules derselben Effects im selben Tick koaleszieren
 - [ ] Subscription- und Effect-Overhead messen
+  - [x] Runtime-Statistiken fuer Effects, Reads, Writes und Scheduling
+  - [x] DOM-Mutationszaehler fuer Inserts, Removes, Replaces und In-Place-Patches
+  - [x] Mikro-Benchmarks fuer Fanout-Update sowie Setup/Cleanup
 
 ### Benchmarks
 
@@ -153,9 +159,10 @@ Ziel: Nicht Solid-Level, aber klar besser als ein naiver DOM-Ansatz.
   - [x] Listen-Toggle
   - grosse statische Teilbaeume
 - [ ] Vergleichsbasis definieren
-  - Vue
-  - Solid
-  - naive DOM-Variante
+  - [x] Vue
+  - [x] React
+  - [ ] Solid
+  - [x] naive DOM-Variante
 - [ ] Performance-Budget festlegen
   - Initial Render
   - Hydration
@@ -321,3 +328,4 @@ Wenn wir strikt nach Hebel gehen, ist die sinnvolle Reihenfolge:
 4. keyed Listen und Formular-/DOM-Edge-Cases
 5. API-, Packaging- und Release-Haertung
 6. reale Apps bauen und nur daraus die 1.0-Semantik ableiten
+

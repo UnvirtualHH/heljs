@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { attr, cell, dynAttr, dynBlock, dynText, frag, get, h, hydrate, list, mount, node, set, text, tpl } from "./runtime";
+import { attr, cell, dynAttr, dynBlock, dynText, effect, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, text, tpl } from "./runtime";
 import {
   dynBlock as serverDynBlock,
   dynText as serverDynText,
@@ -14,6 +14,46 @@ describe("runtime", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "";
+    resetRuntimeStats();
+  });
+
+  it("tracks effect and subscription stats for reactive updates", async () => {
+    const count = cell(0);
+    const dispose = effect(() => {
+      get(count);
+    });
+
+    set(count, 1);
+    await flushMicrotask();
+
+    const stats = getRuntimeStats();
+    expect(stats.effectCreations).toBe(1);
+    expect(stats.effectRuns).toBe(2);
+    expect(stats.cellReads).toBe(2);
+    expect(stats.cellWrites).toBe(1);
+    expect(stats.subscriptionsTracked).toBe(2);
+    expect(stats.flushCycles).toBe(1);
+    expect(stats.scheduledEffects).toBe(1);
+
+    dispose();
+  });
+
+  it("coalesces repeated schedules for the same effect within one tick", async () => {
+    const count = cell(0);
+    effect(() => {
+      get(count);
+    });
+
+    resetRuntimeStats();
+    set(count, 1);
+    set(count, 2);
+    set(count, 3);
+    await flushMicrotask();
+
+    const stats = getRuntimeStats();
+    expect(stats.scheduledEffects).toBe(1);
+    expect(stats.flushCycles).toBe(1);
+    expect(stats.effectRuns).toBe(1);
   });
 
   it("updates text slots after state changes", async () => {
@@ -29,6 +69,43 @@ describe("runtime", () => {
     await flushMicrotask();
 
     expect(root.textContent).toBe("2");
+  });
+
+  it("batches fresh keyed list insertions into a single live DOM insert", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const items = cell<Array<{ id: number; label: string }>>([]);
+    mount(
+      () =>
+        h(
+          "ul",
+          null,
+          list(
+            () => get(items),
+            (item) => item.id,
+            (item) => h("li", null, item.label),
+          ),
+        ),
+      root,
+    );
+
+    const listElement = root.querySelector("ul");
+    expect(listElement).not.toBeNull();
+
+    const insertBeforeSpy = vi.spyOn(listElement!, "insertBefore");
+
+    set(
+      items,
+      Array.from({ length: 25 }, (_, index) => ({
+        id: index,
+        label: `Item ${index}`,
+      })),
+    );
+    await flushMicrotask();
+
+    expect(insertBeforeSpy).toHaveBeenCalledTimes(1);
+    expect(root.querySelectorAll("li")).toHaveLength(25);
   });
 
   it("updates direct text cell bindings without the generic dynText wrapper", async () => {
@@ -321,6 +398,38 @@ describe("runtime", () => {
     expect(root.querySelector("h1")).toBe(stable);
   });
 
+  it("patches stable block slot content in place instead of clearing the block", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const count = cell(1);
+    mount(
+      () =>
+        h(
+          "section",
+          null,
+          dynBlock(() => h("article", { class: "panel" }, h("h2", null, "Stats"), h("p", null, `Count ${get(count)}`))),
+        ),
+      root,
+    );
+
+    const articleBefore = root.querySelector("article");
+    resetRuntimeStats();
+
+    set(count, 2);
+    await flushMicrotask();
+
+    const stats = getRuntimeStats();
+    const articleAfter = root.querySelector("article");
+
+    expect(articleAfter).toBe(articleBefore);
+    expect(stats.domInsertions).toBe(0);
+    expect(stats.domRemovals).toBe(0);
+    expect(stats.domReplacements).toBe(0);
+    expect(stats.textPatches).toBe(1);
+    expect(root.textContent).toContain("Count 2");
+  });
+
   it("cleans up removed nodes when a block slot switches branches", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -494,6 +603,7 @@ describe("runtime", () => {
 
     const listRoot = root.querySelector("ul");
     expect(listRoot).not.toBeNull();
+    const nodesBefore = Array.from(root.querySelectorAll("li"));
 
     const insertBeforeSpy = vi.spyOn(listRoot!, "insertBefore");
 
@@ -504,12 +614,66 @@ describe("runtime", () => {
     ]);
     await flushMicrotask();
 
-    expect(insertBeforeSpy).toHaveBeenCalledTimes(1);
+    expect(insertBeforeSpy).toHaveBeenCalledTimes(0);
     expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual([
       "Alpha:1",
       "Beta:5",
       "Gamma:3",
     ]);
+    const nodesAfter = Array.from(root.querySelectorAll("li"));
+    expect(nodesAfter[0]).toBe(nodesBefore[0]);
+    expect(nodesAfter[1]).toBe(nodesBefore[1]);
+    expect(nodesAfter[2]).toBe(nodesBefore[2]);
+  });
+
+  it("patches stable keyed table rows in place instead of replacing row roots", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const rows = cell(
+      Array.from({ length: 20 }, (_, index) => ({
+        id: `row-${index}`,
+        label: `Row ${index}`,
+        value: index,
+      })),
+    );
+
+    mount(
+      () =>
+        h(
+          "table",
+          null,
+          h(
+            "tbody",
+            null,
+            list(
+              () => get(rows),
+              (row) => row.id,
+              (row) => h("tr", null, h("td", null, row.label), h("td", null, row.value)),
+            ),
+          ),
+        ),
+      root,
+    );
+
+    const rowNodesBefore = Array.from(root.querySelectorAll("tr"));
+    resetRuntimeStats();
+
+    set(
+      rows,
+      get(rows).map((row, index) => (index % 5 === 0 ? { ...row, value: row.value + 10 } : row)),
+    );
+    await flushMicrotask();
+
+    const stats = getRuntimeStats();
+    const rowNodesAfter = Array.from(root.querySelectorAll("tr"));
+
+    expect(stats.domInsertions).toBe(0);
+    expect(stats.domRemovals).toBe(0);
+    expect(stats.domReplacements).toBe(0);
+    expect(stats.textPatches).toBe(4);
+    expect(stats.inPlacePatches).toBeGreaterThan(0);
+    expect(rowNodesAfter).toEqual(rowNodesBefore);
   });
 
   it("hydrates keyed lists from prerendered html and reorders them by key", async () => {

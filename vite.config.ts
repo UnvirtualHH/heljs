@@ -12,11 +12,14 @@ export default defineConfig(({ isSsrBuild }) => ({
     include: ["src/**/*.bench.ts"],
   },
   resolve: {
-    alias: {
-      "@hel/runtime": path.resolve(
-        __dirname,
-        isSsrBuild ? "src/framework/server.ts" : "src/framework/runtime.ts",
-      ),
-    },
+    alias: [
+      {
+        find: "@hel/runtime",
+        replacement: path.resolve(
+          __dirname,
+          isSsrBuild ? "src/framework/server.ts" : "src/framework/runtime.ts",
+        ),
+      },
+    ],
   },
 }));

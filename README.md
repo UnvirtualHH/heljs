@@ -38,7 +38,7 @@ npm run bench
 
 Im Dev-Server (`npm run dev`) wird ohne handgeschriebenes Demo-HTML normal gemountet. Im Build-Output wird dagegen echtes prerendered Markup erzeugt, das der Client anschliessend hydriert.
 
-`npm run bench` fuehrt den aktuellen Mikro-Benchmark-Harness fuer Counter-, Tabellen- und Listen-Pfade ueber Vitest Bench aus.
+`npm run bench` fuehrt den aktuellen Mikro-Benchmark-Harness fuer Counter-, Tabellen- und Listen-Pfade ueber Vitest Bench aus, inklusive lokaler Vergleichsbasis gegen naive Direkt-DOM-Updates, Vue und React. Eine belastbare Solid-Baseline ist im aktuellen Vitest-/happy-dom-Setup noch offen.
 
 ## Wie man es benutzt
 
