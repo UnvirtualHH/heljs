@@ -2,6 +2,11 @@ import { runtimeStats } from "./runtime-core";
 
 const eventBindings = new WeakMap<HTMLElement, Map<string, EventListener>>();
 
+function isInstanceOf<T>(value: unknown, ctorName: "HTMLInputElement" | "HTMLTextAreaElement" | "HTMLSelectElement" | "HTMLOptionElement"): value is T {
+  const ctor = (globalThis as Record<string, unknown>)[ctorName];
+  return typeof ctor === "function" && value instanceof (ctor as typeof Element);
+}
+
 export function bindEvent(element: HTMLElement, key: string, listener: EventListener): void {
   let bindings = eventBindings.get(element);
   if (!bindings) {
@@ -73,7 +78,7 @@ function syncAttributes(current: HTMLElement, next: HTMLElement): void {
 }
 
 function syncSpecialElementState(current: HTMLElement, next: HTMLElement): void {
-  if (current instanceof HTMLInputElement && next instanceof HTMLInputElement) {
+  if (isInstanceOf<HTMLInputElement>(current, "HTMLInputElement") && isInstanceOf<HTMLInputElement>(next, "HTMLInputElement")) {
     if (current.value !== next.value) {
       current.value = next.value;
     }
@@ -85,7 +90,7 @@ function syncSpecialElementState(current: HTMLElement, next: HTMLElement): void 
     return;
   }
 
-  if (current instanceof HTMLTextAreaElement && next instanceof HTMLTextAreaElement) {
+  if (isInstanceOf<HTMLTextAreaElement>(current, "HTMLTextAreaElement") && isInstanceOf<HTMLTextAreaElement>(next, "HTMLTextAreaElement")) {
     if (current.value !== next.value) {
       current.value = next.value;
     }
@@ -93,7 +98,7 @@ function syncSpecialElementState(current: HTMLElement, next: HTMLElement): void 
     return;
   }
 
-  if (current instanceof HTMLSelectElement && next instanceof HTMLSelectElement) {
+  if (isInstanceOf<HTMLSelectElement>(current, "HTMLSelectElement") && isInstanceOf<HTMLSelectElement>(next, "HTMLSelectElement")) {
     if (current.value !== next.value) {
       current.value = next.value;
     }
@@ -101,7 +106,7 @@ function syncSpecialElementState(current: HTMLElement, next: HTMLElement): void 
     return;
   }
 
-  if (current instanceof HTMLOptionElement && next instanceof HTMLOptionElement) {
+  if (isInstanceOf<HTMLOptionElement>(current, "HTMLOptionElement") && isInstanceOf<HTMLOptionElement>(next, "HTMLOptionElement")) {
     if (current.selected !== next.selected) {
       current.selected = next.selected;
     }

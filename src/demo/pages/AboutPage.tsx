@@ -25,8 +25,8 @@ export function AboutPage() {
           <article class="insight-card feature-card">
             <strong>Current router contract</strong>
             <p>
-              Static path matching, history integration, normal anchors and optional convenience helpers.
-              No params or nested layouts yet.
+              Static path matching, history integration, normal anchors, route params and optional
+              convenience helpers. No nested layouts yet.
             </p>
           </article>
         </div>

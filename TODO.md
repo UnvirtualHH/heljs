@@ -53,7 +53,7 @@ Ziel: Reaktivitaet, DOM-Updates, SSR und Hydration muessen in den Kernfaellen de
   - wann Effects verschwinden
   - was bei entfernten Block-Slots passiert
 - [x] Reaktive Props durch Function-Components sauber definieren
-- [ ] Reaktive Component-Props feingranular genug machen
+- [x] Reaktive Component-Props feingranular genug machen
   - keine grossen `dynBlock`-Re-Renders fuer Formular-Subtrees
   - JSX-Komponenten wie `<TodoCard ... />` muessen ohne Fokusverlust stabil bleiben
 
@@ -261,7 +261,7 @@ Ziel: Von "coolem Prototyp" zu "damit kann man Dinge bauen".
 ### Gate fuer Phase 5
 
 - [x] Mindestens eine kleine echte App laesst sich ohne Workarounds bauen
-- [ ] Listen, Formulare und mehrstufige Komponentenbaeume funktionieren stabil
+- [x] Listen, Formulare und mehrstufige Komponentenbaeume funktionieren stabil
 
 ## Phase 6: Packaging, Release und Kompatibilitaet
 

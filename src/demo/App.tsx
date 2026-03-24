@@ -181,64 +181,69 @@ export function App() {
   const router = createRouter([
     {
       path: "/",
-      view: () =>
-        OverviewPage({
-          completionRatio,
-          pendingHeadline,
-          selectedTodo,
-        }),
+      view: () => (
+        <OverviewPage
+          completionRatio={completionRatio}
+          pendingHeadline={pendingHeadline}
+          selectedTodo={selectedTodo}
+        />
+      ),
     },
     {
       path: "/todos",
       view: () => {
         syncSelectionFromRoute();
-        return TodosPage({
-          state,
-          completionRatio,
-          pendingHeadline,
-          completedTodos,
-          openTodos,
-          filteredTodos,
-          selectedTodo,
-          hasSelection,
-          selectedStatus,
-          addTodo,
-          setFilter,
-          selectTodo,
-          toggleTodo,
-          renameTodo,
-          changePriority,
-          changeNote,
-          removeTodo,
-        });
+        return (
+          <TodosPage
+            state={state}
+            completionRatio={completionRatio}
+            pendingHeadline={pendingHeadline}
+            completedTodos={completedTodos}
+            openTodos={openTodos}
+            filteredTodos={filteredTodos}
+            selectedTodo={selectedTodo}
+            hasSelection={hasSelection}
+            selectedStatus={selectedStatus}
+            addTodo={addTodo}
+            setFilter={setFilter}
+            selectTodo={selectTodo}
+            toggleTodo={toggleTodo}
+            renameTodo={renameTodo}
+            changePriority={changePriority}
+            changeNote={changeNote}
+            removeTodo={removeTodo}
+          />
+        );
       },
     },
     {
       path: "/todos/:id",
       view: () => {
         syncSelectionFromRoute(router.params().id);
-        return TodosPage({
-          state,
-          completionRatio,
-          pendingHeadline,
-          completedTodos,
-          openTodos,
-          filteredTodos,
-          selectedTodo,
-          hasSelection,
-          selectedStatus,
-          addTodo,
-          setFilter,
-          selectTodo,
-          toggleTodo,
-          renameTodo,
-          changePriority,
-          changeNote,
-          removeTodo,
-        });
+        return (
+          <TodosPage
+            state={state}
+            completionRatio={completionRatio}
+            pendingHeadline={pendingHeadline}
+            completedTodos={completedTodos}
+            openTodos={openTodos}
+            filteredTodos={filteredTodos}
+            selectedTodo={selectedTodo}
+            hasSelection={hasSelection}
+            selectedStatus={selectedStatus}
+            addTodo={addTodo}
+            setFilter={setFilter}
+            selectTodo={selectTodo}
+            toggleTodo={toggleTodo}
+            renameTodo={renameTodo}
+            changePriority={changePriority}
+            changeNote={changeNote}
+            removeTodo={removeTodo}
+          />
+        );
       },
     },
-    { path: "/about", view: () => AboutPage() },
+    { path: "/about", view: () => <AboutPage /> },
   ]);
 
   return (
@@ -262,7 +267,7 @@ export function App() {
       </header>
 
       <section class="chips">
-        {AccentBadges()}
+        <AccentBadges />
       </section>
 
       <nav class="route-nav" aria-label="Primary navigation">

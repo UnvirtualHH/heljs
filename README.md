@@ -101,7 +101,6 @@ Unterstuetzt sind auch:
 Nicht unterstuetzt in diesem Stand:
 
 - Destructuring bei reaktiven `let`-Deklarationen
-- tiefe Objekt-/Array-Reaktivitaet per Proxy
 
 Bei reaktivem `let`-Destructuring wirft der Compiler jetzt bewusst einen klaren Fehler, statt still kaputten Code zu erzeugen.
 
@@ -318,6 +317,7 @@ Wichtige Semantik:
 - `router.view()` liefert direkt einen renderbaren Block
 - `router.isActive("/about")` kann direkt in Props verwendet werden
 - `router.params()` liefert Route-Parameter fuer den aktuell gematchten Pfad
+- JSX-Komponenten mit reaktiven Props laufen im aktuellen Compilerpfad wieder stabil, auch fuer Formular-Subtrees
 
 Beispiel fuer Params:
 
@@ -512,7 +512,6 @@ Was noch fehlt:
 - Nur `let` wird automatisch zu reactive state.
 - Destructuring fuer reactive `let` ist noch nicht implementiert.
 - Lokale Funktionsanalyse ist bewusst konservativ und nur intra-component.
-- Komponenten mit reaktiven Props sind im aktuellen Stand noch grober als ideal; fuer feinere Form-UIs ist direkter Funktionsaufruf derzeit oft stabiler als JSX-Komponentenverschachtelung.
 - Hydration deckt aktuell den vorgesehenen Happy Path samt Mismatch-Fallback ab, aber nicht jede strukturelle Randbedingung.
 - Der eingebaute `store(...)` ist bewusst grob-granular und lokal.
 - `list(...)` ist noch die offizielle keyed Story; automatische keyed Compiler-Erkennung gibt es noch nicht.
@@ -520,8 +519,10 @@ Was noch fehlt:
 ## Relevante Dateien
 
 - `src/framework/plugin.ts`: AST-Transform fuer Komponenten, `let`, Helper-Analyse und JSX-Slots
-- `src/framework/runtime.ts`: Runtime fuer `cell/get/set`, Scheduler und Text-/Attr-/Block-Slots
-- `src/framework/server.ts`: Server-Renderer fuer HTML-Output mit denselben Block-Markern wie die Hydration-Runtime
+- `src/framework/runtime.ts`: Public Runtime-API und DOM-Entry-Punkte
+- `src/framework/runtime-*.ts`: aufgeteilte Runtime fuer Core, DOM, Patching, Slots, Router und Hydration
+- `src/framework/server.ts`: Public SSR-API
+- `src/framework/server-*.ts`: aufgeteilter Server-Renderer und SSR-Router
 - `src/demo/App.tsx`: Demo-App mit Router, Store und Todo-Workspace
 - `src/demo/pages/*`: aufgeteilte Demo-Seiten
 - `src/demo/components/*`: wiederverwendete Demo-Bausteine
