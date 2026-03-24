@@ -8,6 +8,7 @@ export const NODE_FACTORY = Symbol("hel.node-factory");
 export const TEXT_BINDING = Symbol("hel.text-binding");
 export const ATTR_BINDING = Symbol("hel.attr-binding");
 export const TEMPLATE_FACTORY = Symbol("hel.template-factory");
+export const COMPONENT_REACTIVE_PROPS = Symbol("hel.component-reactive-props");
 
 export type NodeFactory<T = unknown> = {
   [NODE_FACTORY]: true;

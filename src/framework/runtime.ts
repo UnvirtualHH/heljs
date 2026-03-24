@@ -1,6 +1,7 @@
 import {
   attr,
   cell,
+  component,
   createScope,
   disposeScope,
   dyn,
@@ -36,6 +37,7 @@ import {
 export {
   attr,
   cell,
+  component,
   dyn,
   dynAttr,
   dynBlock,
@@ -56,6 +58,7 @@ export {
 export type { Cell, RuntimeStats } from "./runtime-core";
 import {
   ATTR_BINDING,
+  COMPONENT_REACTIVE_PROPS,
   LIST,
   NODE_FACTORY,
   TEMPLATE_FACTORY,
@@ -123,7 +126,41 @@ export function Link(
   return h("a", props, ...children);
 }
 
+function createComponentPropsView(
+  props: Record<string, unknown> | null,
+  children: unknown[],
+): Record<string, unknown> {
+  const source: Record<string, unknown> = {
+    ...(props ?? {}),
+    children,
+  };
 
+  const view: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(source)) {
+    Object.defineProperty(view, key, {
+      enumerable: true,
+      configurable: false,
+      get() {
+        if (isDynamic(value)) {
+          return value.read();
+        }
+
+        return value;
+      },
+    });
+  }
+
+  return view;
+}
+
+function supportsReactiveComponentProps(tag: unknown): boolean {
+  return Boolean(
+    tag &&
+      typeof tag === "function" &&
+      (tag as unknown as Record<PropertyKey, unknown>)[COMPONENT_REACTIVE_PROPS] === true,
+  );
+}
 
 export function h(
   tag: string | ((props: any) => unknown),
@@ -131,6 +168,10 @@ export function h(
   ...children: unknown[]
 ): unknown {
   if (typeof tag === "function") {
+    if (hasReactiveComponentProps(props) && supportsReactiveComponentProps(tag)) {
+      return tag(createComponentPropsView(props, children));
+    }
+
     const renderComponent = () => tag(resolveComponentProps(props, children));
 
     if (hasReactiveComponentProps(props)) {

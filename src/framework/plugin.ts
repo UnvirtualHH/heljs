@@ -35,6 +35,7 @@ type UsedHelpers = {
   cell: boolean;
   get: boolean;
   set: boolean;
+  component: boolean;
   h: boolean;
   node: boolean;
   text: boolean;
@@ -66,6 +67,7 @@ type ComponentAnalysis = {
   reactiveStoreNames: Set<string>;
   reactiveFunctionNames: Set<string>;
   blockFunctionNames: Set<string>;
+  reactivePropNames: Set<string>;
 };
 
 type ComponentTransformResult = {
@@ -98,6 +100,7 @@ function createUsedHelpers(): UsedHelpers {
     cell: false,
     get: false,
     set: false,
+    component: false,
     h: false,
     node: false,
     text: false,
@@ -297,6 +300,7 @@ function analyzeLocalFunctions(
   functionPath: NodePath<t.FunctionDeclaration | t.FunctionExpression | t.ArrowFunctionExpression>,
   reactive: Map<string, ReactiveInfo>,
   reactiveStores: Map<string, t.Identifier>,
+  reactivePropNames: Set<string>,
 ): { reactiveFunctions: Set<t.Identifier>; blockFunctions: Set<t.Identifier> } {
   const localFunctions = collectLocalFunctions(functionPath);
 
@@ -323,6 +327,11 @@ function analyzeLocalFunctions(
         const storeBinding = reactiveStores.get(path.node.name);
         const binding = path.scope.getBinding(path.node.name);
         if (storeBinding && binding && binding.identifier === storeBinding) {
+          info.readsReactive = true;
+          return;
+        }
+
+        if (reactivePropNames.has(path.node.name)) {
           info.readsReactive = true;
         }
       },
@@ -415,6 +424,10 @@ function hasReactiveDependency(node: t.Expression, analysis?: ComponentAnalysis)
     }
 
     if (t.isIdentifier(current) && analysis.reactiveStoreNames.has(current.name)) {
+      return true;
+    }
+
+    if (t.isIdentifier(current) && analysis.reactivePropNames.has(current.name)) {
       return true;
     }
 
@@ -806,6 +819,7 @@ function transformComponent(
         reactiveStoreNames: new Set<string>(),
         reactiveFunctionNames: new Set<string>(),
         blockFunctionNames: new Set<string>(),
+        reactivePropNames: new Set<string>(),
       },
       changed: false,
     };
@@ -813,8 +827,15 @@ function transformComponent(
 
   const reactive = new Map<string, ReactiveInfo>();
   const reactiveStores = new Map<string, t.Identifier>();
+  const reactivePropNames = new Set<string>();
   let changed = false;
   let cellCounter = 0;
+
+  for (const parameter of functionPath.node.params) {
+    if (t.isIdentifier(parameter)) {
+      reactivePropNames.add(parameter.name);
+    }
+  }
 
   for (const statementPath of bodyPath.get("body")) {
     if (!statementPath.isVariableDeclaration({ kind: "let" })) {
@@ -856,7 +877,12 @@ function transformComponent(
     }
   }
 
-  const { reactiveFunctions, blockFunctions } = analyzeLocalFunctions(functionPath, reactive, reactiveStores);
+  const { reactiveFunctions, blockFunctions } = analyzeLocalFunctions(
+    functionPath,
+    reactive,
+    reactiveStores,
+    reactivePropNames,
+  );
 
   for (const statementPath of bodyPath.get("body")) {
     if (!statementPath.isVariableDeclaration({ kind: "let" })) {
@@ -912,6 +938,7 @@ function transformComponent(
         reactiveStoreNames: new Set<string>(),
         reactiveFunctionNames: new Set<string>(),
         blockFunctionNames: new Set<string>(),
+        reactivePropNames,
       },
       changed,
     };
@@ -1067,6 +1094,7 @@ function transformComponent(
       reactiveStoreNames: new Set(Array.from(reactiveStores.keys())),
       reactiveFunctionNames: new Set(Array.from(reactiveFunctions, (identifier) => identifier.name)),
       blockFunctionNames: new Set(Array.from(blockFunctions, (identifier) => identifier.name)),
+      reactivePropNames,
     },
     changed,
   };
@@ -1077,6 +1105,7 @@ function injectRuntimeImport(ast: t.File, used: UsedHelpers): void {
     { imported: "cell", local: "__cell", enabled: used.cell },
     { imported: "get", local: "__get", enabled: used.get },
     { imported: "set", local: "__set", enabled: used.set },
+    { imported: "component", local: "__component", enabled: used.component },
     { imported: "h", local: "__h", enabled: used.h },
     { imported: "node", local: "__node", enabled: used.node },
     { imported: "text", local: "__text", enabled: used.text },
@@ -1167,9 +1196,16 @@ export function helMagicPlugin(): Plugin {
 
           const result = transformComponent(path, used, id, path.node.id.name);
           componentAnalyses.set(path.node, result.analysis);
+          path.insertAfter(
+            t.expressionStatement(
+              t.callExpression(t.identifier("__component"), [t.identifier(path.node.id.name)]),
+            ),
+          );
+          used.component = true;
           if (result.changed) {
             changed = true;
           }
+          changed = true;
         },
 
         VariableDeclarator(path: NodePath<t.VariableDeclarator>) {
@@ -1188,9 +1224,14 @@ export function helMagicPlugin(): Plugin {
 
           const result = transformComponent(initPath, used, id, path.node.id.name);
           componentAnalyses.set(initPath.node, result.analysis);
+          path.get("init").replaceWith(
+            t.callExpression(t.identifier("__component"), [path.node.init as t.Expression]),
+          );
+          used.component = true;
           if (result.changed) {
             changed = true;
           }
+          changed = true;
         },
       });
 

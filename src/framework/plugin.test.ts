@@ -56,11 +56,11 @@ describe("compiler plugin", () => {
     `);
 
     expect(output).toMatchInlineSnapshot(`
-      "import { cell as __cell, get as __get, h as __h, node as __node, text as __text, tpl as __tpl } from "@hel/runtime";
+      "import { cell as __cell, get as __get, component as __component, h as __h, node as __node, text as __text, tpl as __tpl } from "@hel/runtime";
       export function Banner() {const __cell_count_0 = __cell(
           0);
         return __h("section", null, __tpl("<h1>Static</h1>", () => __h("h1", null, "Static")), __node(() => __h("p", null, __text(__cell_count_0))));
-      }"
+      }__component(Banner);"
     `);
   });
 
@@ -160,5 +160,16 @@ describe("compiler plugin", () => {
     `);
 
     expect(output).toContain("__dynText(() => label())");
+  });
+
+  it("treats component prop reads as reactive dependencies in jsx", () => {
+    const output = transform(`
+      export function TodoCard(props) {
+        return <article data-selected={props.selectedId === props.todo.id}>{props.selectedId}</article>;
+      }
+    `);
+
+    expect(output).toContain("__dynAttr(() => props.selectedId === props.todo.id)");
+    expect(output).toContain("__dynText(() => props.selectedId)");
   });
 });

@@ -1,5 +1,6 @@
 import {
   ATTR_BINDING,
+  COMPONENT_REACTIVE_PROPS,
   DYNAMIC,
   LIST,
   NODE_FACTORY,
@@ -418,6 +419,15 @@ export function For<T>(rawProps: Record<string, unknown>): any {
 export function Show(rawProps: Record<string, unknown>): any {
   const props = rawProps as ShowProps;
   return unwrapControlFlowValue(props.when) ? props.children ?? null : unwrapControlFlowValue(props.fallback) ?? null;
+}
+
+export function component<T extends (...args: any[]) => any>(fn: T): T {
+  Object.defineProperty(fn, COMPONENT_REACTIVE_PROPS, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+  });
+  return fn;
 }
 
 export {
