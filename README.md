@@ -252,13 +252,14 @@ function addTodo(event: Event) {
 }
 ```
 
-Der aktuelle Stil ist dabei bewusst immutable:
+Der aktuelle Stil ist dabei bewusst einfach:
 
 - `todos = [...todos, next]`
 - `todos = todos.map(...)`
 - `todos = todos.filter(...)`
+- oder lokaler Proxy-Store mit Mutationen
 
-Tiefe Store-Mutationen wie `setTodos(i, "done", true)` gibt es in Hel aktuell noch nicht.
+Ein tiefer offizieller Store mit eigener Setter-API wie `setTodos(i, "done", true)` ist weiterhin absichtlich nicht Teil des Core.
 
 ### 8. Minimaler Tiefer Store
 
@@ -294,6 +295,7 @@ import { createRouter } from "@hel/runtime";
 
 const router = createRouter([
   { path: "/", view: () => <Home /> },
+  { path: "/todos/:id", view: () => <TodoDetail id={router.params().id} /> },
   { path: "/about", view: () => <About /> },
 ]);
 
@@ -315,6 +317,16 @@ Wichtige Semantik:
 - externe Links, Modifier-Keys und `target` bleiben normales Browser-Verhalten
 - `router.view()` liefert direkt einen renderbaren Block
 - `router.isActive("/about")` kann direkt in Props verwendet werden
+- `router.params()` liefert Route-Parameter fuer den aktuell gematchten Pfad
+
+Beispiel fuer Params:
+
+```tsx
+const router = createRouter([
+  { path: "/todos", view: () => <Todos /> },
+  { path: "/todos/:id", view: () => <TodoDetail id={router.params().id} /> },
+]);
+```
 
 Beispiel:
 
@@ -326,10 +338,10 @@ Beispiel:
 
 Absichtlich noch nicht drin:
 
-- Route-Params
 - nested routes
 - guards
 - loader/actions
+- Query-Parameter als offizielle API
 
 ## Was intern zu was wird
 
@@ -500,8 +512,9 @@ Was noch fehlt:
 - Nur `let` wird automatisch zu reactive state.
 - Destructuring fuer reactive `let` ist noch nicht implementiert.
 - Lokale Funktionsanalyse ist bewusst konservativ und nur intra-component.
-- Hydration deckt aktuell den vorgesehenen Happy Path ab, aber noch keine harte Mismatch-Diagnostik.
-- Kein offizieller Store fuer tiefe Objekt-Reaktivitaet.
+- Komponenten mit reaktiven Props sind im aktuellen Stand noch grober als ideal; fuer feinere Form-UIs ist direkter Funktionsaufruf derzeit oft stabiler als JSX-Komponentenverschachtelung.
+- Hydration deckt aktuell den vorgesehenen Happy Path samt Mismatch-Fallback ab, aber nicht jede strukturelle Randbedingung.
+- Der eingebaute `store(...)` ist bewusst grob-granular und lokal.
 - `list(...)` ist noch die offizielle keyed Story; automatische keyed Compiler-Erkennung gibt es noch nicht.
 
 ## Relevante Dateien
@@ -509,5 +522,7 @@ Was noch fehlt:
 - `src/framework/plugin.ts`: AST-Transform fuer Komponenten, `let`, Helper-Analyse und JSX-Slots
 - `src/framework/runtime.ts`: Runtime fuer `cell/get/set`, Scheduler und Text-/Attr-/Block-Slots
 - `src/framework/server.ts`: Server-Renderer fuer HTML-Output mit denselben Block-Markern wie die Hydration-Runtime
-- `src/App.tsx`: Demo fuer den aktuellen Sprachstil
+- `src/demo/App.tsx`: Demo-App mit Router, Store und Todo-Workspace
+- `src/demo/pages/*`: aufgeteilte Demo-Seiten
+- `src/demo/components/*`: wiederverwendete Demo-Bausteine
 - `docs/M2-DESIGN.md`: Architektur und naechste Schritte Richtung Hydration/SSR

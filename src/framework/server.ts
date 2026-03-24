@@ -34,13 +34,9 @@ type RouterOptions = {
   initialPath?: string;
 };
 
-export type Router = {
-  currentPath: () => string;
-  params: () => Record<string, string>;
-  navigate: (path: string, options?: { replace?: boolean }) => void;
-  view: () => unknown;
-  isActive: (path: string) => boolean;
-};
+import { createStaticRouter, type StaticRouter } from "./server-router";
+
+export type Router = StaticRouter;
 
 type TextBinding<T = unknown> = {
   [TEXT_BINDING]: true;
@@ -330,31 +326,17 @@ function findRoute(routes: RouteDefinition[], path: string): RouteMatch | null {
 }
 
 export function createRouter(routes: RouteDefinition[], options: RouterOptions = {}): Router {
-  let currentPath = normalizeRoutePath(options.initialPath ?? "/");
-  let currentParams = findRoute(routes, currentPath)?.params ?? {};
-
-  return {
-    currentPath: () => currentPath,
-    params: () => currentParams,
-    navigate: (nextPath: string) => {
-      currentPath = normalizeRoutePath(nextPath);
-      currentParams = findRoute(routes, currentPath)?.params ?? {};
-    },
-    view: () => {
-      const match = findRoute(routes, currentPath);
-      if (match) {
-        return match.route.view();
-      }
-
-      return h(
+  return createStaticRouter(
+    routes,
+    options,
+    (currentPath) =>
+      h(
         "section",
         { class: "route-miss" },
         h("h2", null, "Not found"),
         h("p", null, `No route matched ${currentPath}.`),
-      );
-    },
-    isActive: (path: string) => Boolean(matchRoutePath(path, currentPath)),
-  };
+      ),
+  );
 }
 
 export function Link(

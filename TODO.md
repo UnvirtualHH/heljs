@@ -53,6 +53,9 @@ Ziel: Reaktivitaet, DOM-Updates, SSR und Hydration muessen in den Kernfaellen de
   - wann Effects verschwinden
   - was bei entfernten Block-Slots passiert
 - [x] Reaktive Props durch Function-Components sauber definieren
+- [ ] Reaktive Component-Props feingranular genug machen
+  - keine grossen `dynBlock`-Re-Renders fuer Formular-Subtrees
+  - JSX-Komponenten wie `<TodoCard ... />` muessen ohne Fokusverlust stabil bleiben
 
 ### SSR/Hydration
 
@@ -199,6 +202,7 @@ Ziel: Das Framework soll fuer Nutzer vorhersehbar werden.
   - Vite-Plugin
   - SSR
 - [ ] Fehler- und Warnformat standardisieren
+- [ ] Router-API fuer Params und spaeter Query bewusst klein halten
 
 ### TypeScript
 
@@ -224,6 +228,7 @@ Ziel: Von "coolem Prototyp" zu "damit kann man Dinge bauen".
   - normale `<a href>` als Primärpfad
   - statische Routen
   - History API + `popstate`
+- [x] Route-Params (`/todos/:id`)
 - [ ] offizielle Listen-Story
   - Compiler-Pattern
   - [x] Control-Flow-Helper (`For`, `Show`)
@@ -251,6 +256,7 @@ Ziel: Von "coolem Prototyp" zu "damit kann man Dinge bauen".
 - [ ] Devtools-Strategie skizzieren
 - [ ] Source-Maps und Fehlermeldungen fuer Compiler-Ausgaben haerten
 - [x] Beispiel-App bauen, die mehr als einen Counter zeigt
+- [x] Kleine echte Demo-App mit Routing und lokaler Persistenz
 
 ### Gate fuer Phase 5
 
