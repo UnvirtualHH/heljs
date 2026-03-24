@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { attr, cell, createRouter, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, store, text, tpl } from "./runtime";
+import { attr, cell, createRouter, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, store, text, tpl } from "./index";
 import {
   dynBlock as serverDynBlock,
   dynText as serverDynText,
@@ -7,7 +7,7 @@ import {
   list as serverList,
   node as serverNode,
   renderToString,
-} from "./server";
+} from "../server/index";
 
 describe("runtime", () => {
   const flushMicrotask = () => new Promise<void>((resolve) => queueMicrotask(resolve));

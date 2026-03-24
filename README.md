@@ -14,6 +14,34 @@ Ziel ist Solid-artige Fine-Grained-Reaktivitaet, aber mit normalem TypeScript im
 
 Der aktuelle Stand ist ein brauchbarer M2-Prototyp mit Client-Rendering, SSR-HTML-Output und Hydration-MVP.
 
+## Projektstruktur
+
+Die aktive Struktur ist jetzt fachlich getrennt:
+
+- [src/demo](C:/projects/hellscript/codex%20version/src/demo)
+  - Demo-App, Seiten, Daten, Entrys, Styles
+- [src/framework/compiler](C:/projects/hellscript/codex%20version/src/framework/compiler)
+  - AST-Transform und Compiler-Metriken
+- [src/framework/runtime](C:/projects/hellscript/codex%20version/src/framework/runtime)
+  - Client-Runtime, DOM, Hydration, Router, Slots
+- [src/framework/server](C:/projects/hellscript/codex%20version/src/framework/server)
+  - SSR-Runtime, Router, String-Renderer
+- [src/framework/package](C:/projects/hellscript/codex%20version/src/framework/package)
+  - Paket-Entrypoints fuer externe Projekte
+
+Die flachen Dateien direkt unter `src/framework` existieren nur noch als Facades fuer stabile Imports.
+
+Aktive Einstiegspunkte im Framework-Code sind:
+
+- [src/framework/compiler/plugin.ts](C:/projects/hellscript/codex%20version/src/framework/compiler/plugin.ts)
+- [src/framework/runtime/index.ts](C:/projects/hellscript/codex%20version/src/framework/runtime/index.ts)
+- [src/framework/server/index.ts](C:/projects/hellscript/codex%20version/src/framework/server/index.ts)
+- [src/framework/package/runtime.ts](C:/projects/hellscript/codex%20version/src/framework/package/runtime.ts)
+- [src/framework/package/server.ts](C:/projects/hellscript/codex%20version/src/framework/package/server.ts)
+- [src/framework/package/vite.ts](C:/projects/hellscript/codex%20version/src/framework/package/vite.ts)
+
+`shared.ts` und `react-bench-modules.d.ts` bleiben bewusst flach, weil sie moduluebergreifend gebraucht werden.
+
 ## Starten
 
 ```bash

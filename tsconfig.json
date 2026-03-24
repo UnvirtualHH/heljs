@@ -6,7 +6,7 @@
     "baseUrl": ".",
     "paths": {
       "@hel/runtime": [
-        "src/framework/runtime.ts"
+        "src/framework/runtime/index.ts"
       ]
     },
     "strict": true,

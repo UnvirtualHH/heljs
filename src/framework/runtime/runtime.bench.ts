@@ -1,6 +1,6 @@
 import { bench, beforeEach, describe } from "vitest";
-import { cell, dynBlock, effect, get, getRuntimeStats, h, hydrate, list, mount, resetRuntimeStats, set, text } from "./runtime";
-import { frag as serverFrag, h as serverH, list as serverList, renderToString } from "./server";
+import { cell, dynBlock, effect, get, getRuntimeStats, h, hydrate, list, mount, resetRuntimeStats, set, text } from "./index";
+import { frag as serverFrag, h as serverH, list as serverList, renderToString } from "../server/index";
 import { createApp, h as vueH, nextTick, ref as vueRef } from "vue";
 import { createElement as reactCreateElement } from "react";
 import { createRoot as createReactRoot } from "react-dom/client";

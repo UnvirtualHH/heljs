@@ -115,6 +115,15 @@ Ziel: Das Framework darf nicht mehr nur manuell verifiziert werden.
   - typecheck
   - test
   - build
+- [x] Framework-Code fachlich in Subfolder schneiden
+  - `compiler/`
+  - `runtime/`
+  - `server/`
+  - `package/`
+- [ ] Flache Legacy-Facades spaeter physisch entfernen, sobald keine Windows-Dateisperren mehr im Weg stehen
+- [ ] Public Entry Points bewusst finalisieren
+  - welche Root-Dateien bleiben dauerhaft
+  - welche nur noch temporäre Kompatibilitaets-Facades sind
 
 ### Gate fuer Phase 2
 

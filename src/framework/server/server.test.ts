@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRouter, dynBlock, For, h, list, node, renderToString, Show } from "./server";
+import { createRouter, dynBlock, For, h, list, node, renderToString, Show } from "./index";
 
 describe("server renderer", () => {
   it("renders block markers for dynamic regions", () => {

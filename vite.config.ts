@@ -6,10 +6,14 @@ export default defineConfig(({ isSsrBuild }) => ({
   plugins: [helMagicPlugin()],
   test: {
     environment: "happy-dom",
-    include: ["src/**/*.test.ts"],
+    include: [
+      "src/framework/compiler/**/*.test.ts",
+      "src/framework/runtime/**/*.test.ts",
+      "src/framework/server/**/*.test.ts",
+    ],
   },
   benchmark: {
-    include: ["src/**/*.bench.ts"],
+    include: ["src/framework/runtime/**/*.bench.ts"],
   },
   resolve: {
     alias: [
