@@ -28,6 +28,7 @@ Build pruefen:
 ```bash
 npm run typecheck
 npm run build
+npm run build:package
 npm run bench
 npm run bench:runtime
 ```
@@ -43,6 +44,44 @@ Im Dev-Server (`npm run dev`) wird ohne handgeschriebenes Demo-HTML normal gemou
 `npm run bench` fuehrt den aktuellen Mikro-Benchmark-Harness fuer Counter-, Tabellen- und Listen-Pfade ueber Vitest Bench aus, inklusive lokaler Vergleichsbasis gegen naive Direkt-DOM-Updates, Vue und React. Eine belastbare Solid-Baseline ist im aktuellen Vitest-/happy-dom-Setup noch offen.
 
 `npm run bench:runtime` ist der robustere Vergleichslauf ausserhalb von Vitest. Er nutzt feste Iterationen und mehrere Runden pro Szenario und schreibt die Ergebnisse nach `bench-runtime-results.json`.
+
+## Als Paket benutzen
+
+Der Repo-Build und der Paket-Build sind absichtlich getrennt:
+
+- `npm run build` baut Demo, SSR und Prerender-Output
+- `npm run build:package` baut die konsumierbaren Paket-Artefakte nach `dist/package`
+
+Die aktuellen Paket-Entrypoints sind:
+
+- `hel` oder `hel/runtime`
+- `hel/server`
+- `hel/vite`
+
+Lokal in einem zweiten Projekt geht das im Moment z. B. so:
+
+```bash
+# im Hel-Repo
+npm install
+npm run build:package
+
+# im anderen Projekt
+npm install ../hel
+```
+
+Beispiel-Imports:
+
+```ts
+import { mount, h } from "hel";
+import { renderToString } from "hel/server";
+import { helMagicPlugin } from "hel/vite";
+```
+
+Wichtig:
+
+- der aktuelle Paket-Build ist ESM-only
+- vor lokalem Installieren sollte `npm run build:package` gelaufen sein
+- das Repo ist noch kein finaler Release-Kandidat, aber die Paketstruktur ist jetzt erstmals konsumierbar
 
 ## Wie man es benutzt
 
@@ -540,6 +579,9 @@ Was noch fehlt:
 - `src/framework/runtime-*.ts`: aufgeteilte Runtime fuer Core, DOM, Patching, Slots, Router und Hydration
 - `src/framework/server.ts`: Public SSR-API
 - `src/framework/server-*.ts`: aufgeteilter Server-Renderer und SSR-Router
+- `src/framework/package-*.ts`: Paket-Entrypoints fuer Runtime, SSR und Vite-Plugin
+- `scripts/build-package.mjs`: JS-Build fuer die veroeffentlichbaren Paketartefakte
+- `tsconfig.package.json`: Declaration-Build fuer die Paket-Typen
 - `src/demo/App.tsx`: Demo-App mit Router, Store und Todo-Workspace
 - `src/demo/pages/*`: aufgeteilte Demo-Seiten
 - `src/demo/components/*`: wiederverwendete Demo-Bausteine

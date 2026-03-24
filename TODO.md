@@ -269,14 +269,14 @@ Ziel: Das Ding muss veroeffentlichbar und konsumierbar sein.
 
 ### Packaging
 
-- [ ] `exports`-Map sauber definieren
-- [ ] ESM-first Release sauber aufsetzen
+- [x] `exports`-Map sauber definieren
+- [x] ESM-first Release sauber aufsetzen
 - [ ] ggf. CJS-Story bewusst ausschliessen oder separat loesen
 - [ ] Versionierung und Changelog-Strategie festlegen
 
 ### Tooling-Integration
 
-- [ ] Vite-Plugin oeffentlich konsumierbar machen
+- [x] Vite-Plugin oeffentlich konsumierbar machen
 - [ ] Minimalbeispiel fuer SSR-Integration bereitstellen
 - [ ] Templates / Starter erzeugen
 

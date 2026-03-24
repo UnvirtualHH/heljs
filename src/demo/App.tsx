@@ -13,12 +13,6 @@ export function App() {
     return filter === "open" || filter === "done" ? filter : "all";
   }
 
-  function todosUrl(id = state.selectedId, filter = state.filter) {
-    const pathname = id ? `/todos/${encodeURIComponent(id)}` : "/todos";
-    const query = filter === "all" ? "" : `?filter=${encodeURIComponent(filter)}`;
-    return `${pathname}${query}`;
-  }
-
   function persist() {
     if (typeof window === "undefined") {
       return;
@@ -115,19 +109,21 @@ export function App() {
     state.filter = "all";
     state.draft = "";
     persist();
-    router.navigate(todosUrl(item.id, "all"));
+    router.navigate(router.href(`/todos/${encodeURIComponent(item.id)}`));
   }
 
   function setFilter(filter: TodoFilter) {
     state.filter = filter;
     persist();
-    router.navigate(todosUrl(state.selectedId, filter), { replace: true });
+    router.setQuery({ filter: filter === "all" ? null : filter }, { replace: true });
   }
 
   function selectTodo(id: string) {
     state.selectedId = id;
     persist();
-    router.navigate(todosUrl(id));
+    router.navigate(router.href(`/todos/${encodeURIComponent(id)}`, {
+      filter: state.filter === "all" ? null : state.filter,
+    }));
   }
 
   function toggleTodo(id: string, done: boolean) {
@@ -181,7 +177,16 @@ export function App() {
     if (state.selectedId === id) {
       const nextId = state.todos[0]?.id ?? "";
       state.selectedId = nextId;
-      router.navigate(nextId ? todosUrl(nextId) : todosUrl("", state.filter), { replace: true });
+      router.navigate(
+        nextId
+          ? router.href(`/todos/${encodeURIComponent(nextId)}`, {
+              filter: state.filter === "all" ? null : state.filter,
+            })
+          : router.href("/todos", {
+              filter: state.filter === "all" ? null : state.filter,
+            }),
+        { replace: true },
+      );
     }
 
     persist();

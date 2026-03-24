@@ -1,6 +1,6 @@
 import path from "node:path";
 import { defineConfig } from "vitest/config";
-import { helMagicPlugin } from "./src/framework/plugin";
+import { helMagicPlugin } from "./src/framework/compiler/plugin";
 
 export default defineConfig(({ isSsrBuild }) => ({
   plugins: [helMagicPlugin()],
@@ -17,7 +17,7 @@ export default defineConfig(({ isSsrBuild }) => ({
         find: "@hel/runtime",
         replacement: path.resolve(
           __dirname,
-          isSsrBuild ? "src/framework/server.ts" : "src/framework/runtime.ts",
+          isSsrBuild ? "src/framework/server/index.ts" : "src/framework/runtime/index.ts",
         ),
       },
     ],

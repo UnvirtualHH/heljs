@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist/package",
+    "rootDir": "src/framework"
+  },
+  "include": [
+    "src/framework/package-runtime.ts",
+    "src/framework/package-server.ts",
+    "src/framework/package-vite.ts",
+    "src/framework/jsx.d.ts"
+  ]
+}

@@ -1,7 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { writeFile } from "node:fs/promises";
 import { Window } from "happy-dom";
-import { cell, dynBlock, get, h, list, mount, resetRuntimeStats, set, text } from "../src/framework/runtime.ts";
+import { cell, dynBlock, get, h, list, mount, resetRuntimeStats, set, text } from "../src/framework/runtime/index.ts";
 
 type BenchCase = {
   name: string;

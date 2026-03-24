@@ -323,6 +323,45 @@ describe("runtime", () => {
     expect(window.location.search).toBe("?filter=open");
   });
 
+  it("builds hrefs and updates query state without manual string assembly", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const router = createRouter(
+      [
+        {
+          path: "/todos",
+          view: () => h("h2", null, `Filter ${router.query().filter ?? "all"}`),
+        },
+      ],
+      { initialPath: "/todos" },
+    );
+
+    mount(
+      () =>
+        h(
+          "main",
+          null,
+          h("a", { href: router.href("/todos", { filter: "done" }) }, "Done"),
+          router.view(),
+        ),
+      root,
+    );
+
+    expect(root.querySelector("a")?.getAttribute("href")).toBe("/todos?filter=done");
+
+    router.setQuery({ filter: "open" }, { replace: true });
+    await flushMicrotask();
+    expect(router.query().filter).toBe("open");
+    expect(root.querySelector("h2")?.textContent).toBe("Filter open");
+
+    router.setQuery({ filter: null }, { replace: true });
+    await flushMicrotask();
+    expect(router.query().filter).toBeUndefined();
+    expect(window.location.search).toBe("");
+    expect(root.querySelector("h2")?.textContent).toBe("Filter all");
+  });
+
   it("supports history-style numeric navigation without replacing anchor routing", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);

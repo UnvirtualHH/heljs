@@ -117,6 +117,23 @@ describe("server renderer", () => {
     expect(router.query().filter).toBe("done");
   });
 
+  it("builds hrefs and merges query patches on the server", () => {
+    const router = createRouter(
+      [
+        { path: "/todos", view: () => h("h2", null, `Filter ${router.query().filter ?? "all"}`) },
+      ],
+      { initialPath: "/todos?filter=done" },
+    );
+
+    expect(router.href("/todos", { filter: "open", page: 2 })).toBe("/todos?filter=open&page=2");
+
+    router.setQuery({ filter: "open", page: 2 });
+    expect(router.query()).toEqual({ filter: "open", page: "2" });
+
+    router.setQuery({ filter: null });
+    expect(router.query()).toEqual({ page: "2" });
+  });
+
   it("ignores numeric navigation on the server", () => {
     const router = createRouter(
       [

@@ -72,6 +72,9 @@ export type RouteLocation = {
   query: Record<string, string>;
 };
 
+export type QueryValue = string | number | boolean | null | undefined;
+export type QueryInput = Record<string, QueryValue>;
+
 export type RouterOptions = {
   initialPath?: string;
 };
@@ -138,6 +141,40 @@ export function parseRouteLocation(input: string): RouteLocation {
     const query = Object.fromEntries(new URLSearchParams(rawQuery).entries());
     return { path, query };
   }
+}
+
+export function mergeRouteQuery(
+  base: Record<string, string>,
+  patch: QueryInput,
+): Record<string, string> {
+  const next = { ...base };
+
+  for (const [key, value] of Object.entries(patch)) {
+    if (value == null) {
+      delete next[key];
+      continue;
+    }
+
+    next[key] = String(value);
+  }
+
+  return next;
+}
+
+export function buildRouteTarget(path: string, query: QueryInput = {}): string {
+  const normalized = normalizeRoutePath(path);
+  const searchParams = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value == null) {
+      continue;
+    }
+
+    searchParams.set(key, String(value));
+  }
+
+  const search = searchParams.toString();
+  return search ? `${normalized}?${search}` : normalized;
 }
 
 export function splitRoutePath(path: string): string[] {
