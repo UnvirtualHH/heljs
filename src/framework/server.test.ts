@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dynBlock, h, list, node, renderToString } from "./server";
+import { dynBlock, For, h, list, node, renderToString, Show } from "./server";
 
 describe("server renderer", () => {
   it("renders block markers for dynamic regions", () => {
@@ -36,5 +36,39 @@ describe("server renderer", () => {
     expect(html).toMatchInlineSnapshot(
       "\"<ul><!--hs:block:start--><li data-id=\"a\">Alpha</li><li data-id=\"b\">Beta</li><!--hs:block:end--></ul>\"",
     );
+  });
+
+  it("renders Show and For helper components", () => {
+    const html = renderToString(() =>
+      h(
+        "section",
+        null,
+        h(
+          Show,
+          { when: true, fallback: h("p", null, "fallback") },
+          h("strong", null, "visible"),
+        ),
+        h(
+          "ul",
+          null,
+          h(
+            For,
+            {
+              each: [
+                { id: "a", label: "Alpha" },
+                { id: "b", label: "Beta" },
+              ],
+              key: (item: { id: string }) => item.id,
+            },
+            (item: { label: string }) => h("li", null, item.label),
+          ),
+        ),
+      ),
+    );
+
+    expect(html).toContain("<strong>visible</strong>");
+    expect(html).toContain("<li>Alpha</li>");
+    expect(html).toContain("<li>Beta</li>");
+    expect(html).not.toContain("fallback");
   });
 });

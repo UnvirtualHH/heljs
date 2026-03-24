@@ -133,7 +133,7 @@ Ziel: Nicht Solid-Level, aber klar besser als ein naiver DOM-Ansatz.
   - [ ] weitere konservative Spezialfaelle identifizieren
 - [ ] Closure-Allokationen im Output messen und senken
   - [x] reproduzierbare Transform-Metriken als Testbasis
-  - [ ] CLI-Report oder Benchmark-Report mit belastbarer Ausgabe
+  - [x] CLI-Report oder Benchmark-Report mit belastbarer Ausgabe
 
 ### Runtime
 
@@ -158,6 +158,7 @@ Ziel: Nicht Solid-Level, aber klar besser als ein naiver DOM-Ansatz.
   - [x] Tabellenupdates
   - [x] Listen-Toggle
   - grosse statische Teilbaeume
+  - [x] dedizierter Runtime-Harness ausserhalb von Vitest
 - [ ] Vergleichsbasis definieren
   - [x] Vue
   - [x] React
@@ -221,6 +222,7 @@ Ziel: Von "coolem Prototyp" zu "damit kann man Dinge bauen".
 - [x] keyed List-Reconciliation
 - [ ] offizielle Listen-Story
   - Compiler-Pattern
+  - [x] Control-Flow-Helper (`For`, `Show`)
   - [x] Helper
   - Control-Flow-Komponente
 - [ ] bessere Fragment-Unterstuetzung ueber alle Pfade

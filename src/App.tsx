@@ -1,4 +1,4 @@
-import { list } from "@hel/runtime";
+import { For, Show } from "@hel/runtime";
 
 function AccentBadges() {
   return (
@@ -130,7 +130,7 @@ export function App() {
           {visible ? "Hide" : "Show"} details
         </button>
       </section>
-      {visible ? (
+      <Show when={visible} fallback={<div class="panel muted">Details are hidden.</div>}>
         <div class="panel">
           <strong>Reactive details</strong>
           <p>Current count is {count}.</p>
@@ -157,17 +157,18 @@ export function App() {
           <div class="list-block">
             <strong>Recent frames</strong>
             <ul class="frame-list">
-              {list(
-                recentFrames,
-                (entry) => entry.id,
-                (entry) => (
+              <For
+                each={recentFrames()}
+                key={(entry: ReturnType<typeof recentFrames>[number]) => entry.id}
+              >
+                {(entry: ReturnType<typeof recentFrames>[number]) => (
                   <li class="frame-row" data-state={entry.state}>
                     <span class="frame-label">{entry.label}</span>
                     <span class="frame-value">{entry.value}</span>
                     <span class="frame-state">{entry.state}</span>
                   </li>
-                ),
-              )}
+                )}
+              </For>
             </ul>
           </div>
           <div class="todo-block">
@@ -193,45 +194,45 @@ export function App() {
               </button>
             </form>
             <div class="todo-list">
-              {todos.map((todo, index) => (
-                <div class="todo-row" data-done={todo.done}>
-                  <input
-                    type="checkbox"
-                    checked={todo.done}
-                    onChange={(event: Event) => {
-                      toggleTodo(
-                        index,
-                        (event.currentTarget as HTMLInputElement).checked,
-                      );
-                    }}
-                  />
-                  <input
-                    class="todo-title"
-                    type="text"
-                    value={todo.title}
-                    onInput={(event: Event) => {
-                      renameTodo(
-                        index,
-                        (event.currentTarget as HTMLInputElement).value,
-                      );
-                    }}
-                  />
-                  <button
-                    class="todo-remove"
-                    type="button"
-                    onClick={() => removeTodo(index)}
-                  >
-                    x
-                  </button>
-                </div>
-              ))}
+              <For each={todos}>
+                {(todo: TodoItem, index: number) => (
+                  <div class="todo-row" data-done={todo.done}>
+                    <input
+                      type="checkbox"
+                      checked={todo.done}
+                      onChange={(event: Event) => {
+                        toggleTodo(
+                          index,
+                          (event.currentTarget as HTMLInputElement).checked,
+                        );
+                      }}
+                    />
+                    <input
+                      class="todo-title"
+                      type="text"
+                      value={todo.title}
+                      onInput={(event: Event) => {
+                        renameTodo(
+                          index,
+                          (event.currentTarget as HTMLInputElement).value,
+                        );
+                      }}
+                    />
+                    <button
+                      class="todo-remove"
+                      type="button"
+                      onClick={() => removeTodo(index)}
+                    >
+                      x
+                    </button>
+                  </div>
+                )}
+              </For>
             </div>
           </div>
           {renderStatus()}
         </div>
-      ) : (
-        <div class="panel muted">Details are hidden.</div>
-      )}
+      </Show>
     </main>
   );
 }

@@ -7,6 +7,19 @@ type KeyedList<T> = {
   render: (item: T, index: number) => unknown;
 };
 
+type ForProps<T> = {
+  each: T[];
+  key?: (item: T, index: number) => string | number;
+  fallback?: unknown;
+  children?: Array<((item: T, index: number) => unknown) | unknown>;
+};
+
+type ShowProps = {
+  when: unknown;
+  fallback?: unknown;
+  children?: unknown[];
+};
+
 type TextBinding<T = unknown> = {
   [TEXT_BINDING]: true;
   cell: Cell<T>;
@@ -177,6 +190,61 @@ export function list<T>(
     key,
     render,
   };
+}
+
+function unwrapControlFlowValue<T>(value: T): T {
+  if (isDynamic(value)) {
+    return value.read() as T;
+  }
+
+  if (isTextBinding(value)) {
+    return get(value.cell) as T;
+  }
+
+  if (isAttrBinding(value)) {
+    return get(value.cell) as T;
+  }
+
+  if (isNodeFactory(value)) {
+    return value.read() as T;
+  }
+
+  if (isTemplateFactory(value)) {
+    return value.read() as T;
+  }
+
+  return value;
+}
+
+export function For<T>(rawProps: Record<string, unknown>): any {
+  const props = rawProps as ForProps<T>;
+  const items = (unwrapControlFlowValue(props.each) ?? []) as T[];
+  const render = props.children?.[0];
+
+  if (items.length === 0) {
+    return unwrapControlFlowValue(props.fallback) ?? null;
+  }
+
+  if (typeof render !== "function") {
+    return items;
+  }
+
+  const renderItem = render as (item: T, index: number) => unknown;
+
+  if (!props.key) {
+    return items.map((item, index) => renderItem(item, index));
+  }
+
+  return list(
+    () => items,
+    props.key,
+    renderItem,
+  );
+}
+
+export function Show(rawProps: Record<string, unknown>): any {
+  const props = rawProps as ShowProps;
+  return unwrapControlFlowValue(props.when) ? props.children ?? null : unwrapControlFlowValue(props.fallback) ?? null;
 }
 
 function isDynamic(value: unknown): value is Dynamic {
@@ -357,9 +425,9 @@ function serializeValue(value: unknown): string {
 }
 
 export function h(
-  tag: string | ((props: Record<string, unknown>) => unknown),
+  tag: string | ((props: any) => unknown),
   props: Record<string, unknown> | null,
-  ...children: Renderable[]
+  ...children: any[]
 ): Renderable {
   if (typeof tag === "function") {
     return tag({ ...(props ?? {}), children }) as Renderable;

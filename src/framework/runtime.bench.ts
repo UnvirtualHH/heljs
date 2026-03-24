@@ -6,6 +6,16 @@ import { createElement as reactCreateElement } from "react";
 import { createRoot as createReactRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 
+const FAST_BENCH = {
+  time: 800,
+  warmupTime: 200,
+};
+
+const SLOW_BENCH = {
+  time: 1500,
+  warmupTime: 300,
+};
+
 function flushMicrotask(): Promise<void> {
   return new Promise((resolve) => queueMicrotask(resolve));
 }
@@ -297,9 +307,8 @@ describe("runtime benchmarks", () => {
       () => h("section", null, h("h1", null, "Count"), h("p", null, text(count)), h("button", null, "+")),
       root,
     );
-
     destroyRoot(root);
-  });
+  }, FAST_BENCH);
 
   bench("counter update", async () => {
     const root = createRoot();
@@ -309,24 +318,23 @@ describe("runtime benchmarks", () => {
       () => h("section", null, h("h1", null, "Count"), h("p", null, text(count)), h("button", null, "+")),
       root,
     );
-
     set(count, 1);
     await flushMicrotask();
     destroyRoot(root);
-  });
+  }, FAST_BENCH);
 
   bench("naive counter mount", () => {
     const root = createRoot();
     naiveRenderCounter(root, 0);
     destroyRoot(root);
-  });
+  }, FAST_BENCH);
 
   bench("naive counter update", () => {
     const root = createRoot();
     naiveRenderCounter(root, 0);
     naiveRenderCounter(root, 1);
     destroyRoot(root);
-  });
+  }, FAST_BENCH);
 
   bench("vue counter update", async () => {
     const root = createRoot();
@@ -335,7 +343,7 @@ describe("runtime benchmarks", () => {
     await flushVue();
     app.unmount();
     destroyRoot(root);
-  });
+  }, FAST_BENCH);
 
   bench("react counter update", () => {
     const root = createRoot();
@@ -343,7 +351,7 @@ describe("runtime benchmarks", () => {
     app.setCount(1);
     app.unmount();
     destroyRoot(root);
-  });
+  }, FAST_BENCH);
 
   bench("counter hydrate", () => {
     const root = document.createElement("section");
@@ -355,9 +363,8 @@ describe("runtime benchmarks", () => {
       () => [h("h1", null, "Count"), h("p", null, text(count)), h("button", null, "+")],
       root,
     );
-
     root.remove();
-  });
+  }, FAST_BENCH);
 
   bench("table update", async () => {
     const root = createRoot();
@@ -394,7 +401,7 @@ describe("runtime benchmarks", () => {
     );
     await flushMicrotask();
     destroyRoot(root);
-  });
+  }, SLOW_BENCH);
 
   bench("naive table update", () => {
     const root = createRoot();
@@ -410,7 +417,7 @@ describe("runtime benchmarks", () => {
       rows.map((row, index) => (index % 10 === 0 ? { ...row, value: row.value + 1 } : row)),
     );
     destroyRoot(root);
-  });
+  }, SLOW_BENCH);
 
   bench("vue table update", async () => {
     const root = createRoot();
@@ -419,7 +426,7 @@ describe("runtime benchmarks", () => {
     await flushVue();
     app.unmount();
     destroyRoot(root);
-  });
+  }, SLOW_BENCH);
 
   bench("react table update", () => {
     const root = createRoot();
@@ -427,7 +434,7 @@ describe("runtime benchmarks", () => {
     app.updateRows();
     app.unmount();
     destroyRoot(root);
-  });
+  }, SLOW_BENCH);
 
   bench("list toggle update", async () => {
     const root = createRoot();
@@ -461,7 +468,7 @@ describe("runtime benchmarks", () => {
     set(visible, true);
     await flushMicrotask();
     destroyRoot(root);
-  });
+  }, SLOW_BENCH);
 
   bench("naive list toggle update", () => {
     const root = createRoot();
@@ -471,7 +478,7 @@ describe("runtime benchmarks", () => {
     naiveRenderListToggle(root, false, items);
     naiveRenderListToggle(root, true, items);
     destroyRoot(root);
-  });
+  }, SLOW_BENCH);
 
   bench("vue list toggle update", async () => {
     const root = createRoot();
@@ -482,7 +489,7 @@ describe("runtime benchmarks", () => {
     await flushVue();
     app.unmount();
     destroyRoot(root);
-  });
+  }, SLOW_BENCH);
 
   bench("react list toggle update", () => {
     const root = createRoot();
@@ -491,7 +498,7 @@ describe("runtime benchmarks", () => {
     app.show();
     app.unmount();
     destroyRoot(root);
-  });
+  }, SLOW_BENCH);
 
   bench("list hydrate and reorder", async () => {
     const root = createRoot();
@@ -526,7 +533,7 @@ describe("runtime benchmarks", () => {
     set(items, [...get(items)].reverse());
     await flushMicrotask();
     destroyRoot(root);
-  });
+  }, SLOW_BENCH);
 
   bench("reactivity fanout update", async () => {
     const source = cell(0);
@@ -543,7 +550,7 @@ describe("runtime benchmarks", () => {
     for (const dispose of disposers) {
       dispose();
     }
-  });
+  }, SLOW_BENCH);
 
   bench("reactivity setup and cleanup", () => {
     const source = cell(0);
@@ -556,5 +563,5 @@ describe("runtime benchmarks", () => {
     for (const dispose of disposers) {
       dispose();
     }
-  });
+  }, SLOW_BENCH);
 });

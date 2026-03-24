@@ -52,6 +52,19 @@ type KeyedList<T> = {
   render: (item: T, index: number) => unknown;
 };
 
+type ForProps<T> = {
+  each: T[];
+  key?: (item: T, index: number) => string | number;
+  fallback?: unknown;
+  children?: Array<((item: T, index: number) => unknown) | unknown>;
+};
+
+type ShowProps = {
+  when: unknown;
+  fallback?: unknown;
+  children?: unknown[];
+};
+
 const BLOCK_START = "hs:block:start";
 const BLOCK_END = "hs:block:end";
 const NODE_FACTORY = Symbol("hel.node-factory");
@@ -521,6 +534,61 @@ export function list<T>(
   };
 }
 
+function unwrapControlFlowValue<T>(value: T): T {
+  if (isDynamic(value)) {
+    return value.read() as T;
+  }
+
+  if (isTextBinding(value)) {
+    return get(value.cell) as T;
+  }
+
+  if (isAttrBinding(value)) {
+    return get(value.cell) as T;
+  }
+
+  if (isNodeFactory(value)) {
+    return value.read() as T;
+  }
+
+  if (isTemplateFactory(value)) {
+    return value.read() as T;
+  }
+
+  return value;
+}
+
+export function For<T>(rawProps: Record<string, unknown>): any {
+  const props = rawProps as ForProps<T>;
+  const items = (unwrapControlFlowValue(props.each) ?? []) as T[];
+  const render = props.children?.[0];
+
+  if (items.length === 0) {
+    return unwrapControlFlowValue(props.fallback) ?? null;
+  }
+
+  if (typeof render !== "function") {
+    return items;
+  }
+
+  const renderItem = render as (item: T, index: number) => unknown;
+
+  if (!props.key) {
+    return items.map((item, index) => renderItem(item, index));
+  }
+
+  return list(
+    () => items,
+    props.key,
+    renderItem,
+  );
+}
+
+export function Show(rawProps: Record<string, unknown>): any {
+  const props = rawProps as ShowProps;
+  return unwrapControlFlowValue(props.when) ? props.children ?? null : unwrapControlFlowValue(props.fallback) ?? null;
+}
+
 function isDynamic(value: unknown): value is Dynamic {
   return typeof value === "object" && value !== null && DYNAMIC in value;
 }
@@ -713,6 +781,10 @@ function toNodeList(value: unknown): Node[] {
     }
 
     return nodes;
+  }
+
+  if (isKeyedList(value)) {
+    return toNodeList(value.read().map((item, index) => value.render(item, index)));
   }
 
   if (value instanceof DocumentFragment) {
@@ -1037,6 +1109,62 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
       insertNodesBefore(parent, freshNodes, end!);
       currentEntries = nextEntries;
       return;
+    }
+
+    if (currentEntries.length === items.length) {
+      const nextEntries: Array<ListEntry<T>> = [];
+      let stableOrder = true;
+
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index]!;
+        const key = binding.key(item, index);
+        const previous = currentEntries[index]!;
+
+        if (previous.key !== key) {
+          stableOrder = false;
+          break;
+        }
+
+        if (previous.item === item) {
+          nextEntries.push(previous);
+          continue;
+        }
+
+        const scope = createScope();
+        const node = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
+        const canPatchInPlace =
+          previous.node.parentNode === parent &&
+          scope.cleanups.size === 0 &&
+          canPatchNodeInPlace(previous.node, node);
+
+        if (canPatchInPlace) {
+          patchNodeInPlace(previous.node, node);
+          disposeScope(scope);
+          nextEntries.push({
+            item,
+            key,
+            node: previous.node,
+            scope: previous.scope,
+          });
+          continue;
+        }
+
+        if (previous.node.parentNode === parent) {
+          replaceNode(parent, node, previous.node);
+        }
+        disposeScope(previous.scope);
+        nextEntries.push({
+          item,
+          key,
+          node,
+          scope,
+        });
+      }
+
+      if (stableOrder) {
+        currentEntries = nextEntries;
+        return;
+      }
     }
 
     const previousByKey = new Map<string | number, ListEntry<T>>();
@@ -1388,7 +1516,7 @@ function applyProps(element: HTMLElement, props: Record<string, unknown>): Array
 }
 
 export function h(
-  tag: string | ((props: Record<string, unknown>) => unknown),
+  tag: string | ((props: any) => unknown),
   props: Record<string, unknown> | null,
   ...children: unknown[]
 ): unknown {

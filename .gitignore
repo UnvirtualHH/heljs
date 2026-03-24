@@ -10,6 +10,8 @@ coverage/
 .tmp-plugin/
 .vite/
 .vitest/
+bench-results.json
+bench-runtime-results.json
 
 # Logs
 npm-debug.log*

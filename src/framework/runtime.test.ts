@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { attr, cell, dynAttr, dynBlock, dynText, effect, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, text, tpl } from "./runtime";
+import { attr, cell, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, text, tpl } from "./runtime";
 import {
   dynBlock as serverDynBlock,
   dynText as serverDynText,
@@ -137,6 +137,76 @@ describe("runtime", () => {
     await flushMicrotask();
 
     expect(input?.value).toBe("beta");
+  });
+
+  it("renders Show fallback and swaps branches through reactive props", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const visible = cell(true);
+    mount(
+      () =>
+        h(
+          "section",
+          null,
+          h(
+            Show,
+            {
+              when: dynBlock(() => get(visible)),
+              fallback: h("p", null, "hidden"),
+            },
+            h("span", null, "visible"),
+          ),
+        ),
+      root,
+    );
+
+    expect(root.textContent).toBe("visible");
+
+    set(visible, false);
+    await flushMicrotask();
+    expect(root.textContent).toBe("hidden");
+
+    set(visible, true);
+    await flushMicrotask();
+    expect(root.textContent).toBe("visible");
+  });
+
+  it("renders For with keyed items through reactive props", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const items = cell([
+      { id: 1, label: "One" },
+      { id: 2, label: "Two" },
+    ]);
+
+    mount(
+      () =>
+        h(
+          "ul",
+          null,
+          h(
+            For,
+            {
+              each: dynBlock(() => get(items)),
+              key: (item: { id: number }) => item.id,
+            },
+            (item: { label: string }) => h("li", null, item.label),
+          ),
+        ),
+      root,
+    );
+
+    expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["One", "Two"]);
+
+    set(items, [
+      { id: 2, label: "Two" },
+      { id: 3, label: "Three" },
+    ]);
+    await flushMicrotask();
+
+    expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Two", "Three"]);
   });
 
   it("clones static templates on mount without using the fallback builder", () => {

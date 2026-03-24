@@ -28,6 +28,7 @@ Build pruefen:
 npm run typecheck
 npm run build
 npm run bench
+npm run bench:runtime
 ```
 
 `npm run build` macht jetzt drei Dinge:
@@ -39,6 +40,8 @@ npm run bench
 Im Dev-Server (`npm run dev`) wird ohne handgeschriebenes Demo-HTML normal gemountet. Im Build-Output wird dagegen echtes prerendered Markup erzeugt, das der Client anschliessend hydriert.
 
 `npm run bench` fuehrt den aktuellen Mikro-Benchmark-Harness fuer Counter-, Tabellen- und Listen-Pfade ueber Vitest Bench aus, inklusive lokaler Vergleichsbasis gegen naive Direkt-DOM-Updates, Vue und React. Eine belastbare Solid-Baseline ist im aktuellen Vitest-/happy-dom-Setup noch offen.
+
+`npm run bench:runtime` ist der robustere Vergleichslauf ausserhalb von Vitest. Er nutzt feste Iterationen und mehrere Runden pro Szenario und schreibt die Ergebnisse nach `bench-runtime-results.json`.
 
 ## Wie man es benutzt
 
@@ -207,6 +210,29 @@ Pragmatisch heisst das:
 
 - `map(...)` fuer einfache Listen
 - `list(...)` fuer stabile, keyed Listen
+- optional `For` als Control-Flow-Helper ueber beiden Stilen
+
+```tsx
+import { For } from "@hel/runtime";
+
+<ul>
+  <For each={todos} key={(todo) => todo.id}>
+    {(todo) => <li>{todo.title}</li>}
+  </For>
+</ul>
+```
+
+Ohne `key` rendert `For` einfach ueber `map(...)`. Mit `key` nutzt es intern die keyed `list(...)`-Semantik.
+
+Fuer Branches gibt es optional auch `Show`:
+
+```tsx
+import { Show } from "@hel/runtime";
+
+<Show when={visible} fallback={<p>Hidden</p>}>
+  <section>Visible</section>
+</Show>
+```
 
 ### 7. Form-Inputs und Todos
 
