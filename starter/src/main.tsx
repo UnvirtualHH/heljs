@@ -31,7 +31,7 @@ function App() {
   return (
     <main class="shell">
       <header class="hero">
-        <p class="eyebrow">hel starter</p>
+        <p class="eyebrow">Hel starter</p>
         <h1>Minimal Consumer App</h1>
         <p class="copy">This app consumes the packaged framework through `hel/runtime` and `hel/vite`.</p>
       </header>
@@ -118,7 +118,7 @@ function NoteDetail(props: { id: string }) {
     <section class="panel">
       <Show when={note()} fallback={<p>Missing note.</p>}>
         <article>
-          <p class="eyebrow">detail</p>
+          <p class="eyebrow">Detail</p>
           <h2>{note()?.title ?? "Unknown"}</h2>
           <p>Status: {note()?.done ? "done" : "open"}</p>
           <a href="/notes">Back to list</a>

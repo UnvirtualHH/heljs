@@ -1,22 +1,22 @@
 # M2 Design
 
-Ziel von M2 ist ein compiler-first Framework ohne Virtual DOM, das sich im User-Code wie "normales TypeScript + JSX" anfuehlt:
+The goal of M2 is a compiler-first framework without a virtual DOM that feels like "normal TypeScript + JSX" in user code:
 
-- `let` fuer lokalen mutable state
-- `const` fuer normale Ableitungen und Helper
-- keine `signal()`, `memo()`, `effect()` API im User-Code
-- direkte DOM-Updates statt VDOM
-- SSR/Hydration als echter Pfad, nicht nur Client-Mount
+- `let` for local mutable state
+- `const` for normal derivations and helpers
+- no `signal()`, `memo()`, or `effect()` API in user code
+- direct DOM updates instead of a virtual DOM
+- SSR and hydration as a real path, not just client-only mounting
 
-M1 ist dafuer eine brauchbare Basis, aber noch nicht nah genug an der Zielanforderung. M2 schliesst drei Luecken:
+M1 is a usable base for that, but still not close enough to the target requirement. M2 closes three gaps:
 
-1. Reaktivitaet muss auch durch normale Helper-Funktionen und Closures tragen.
-2. Hydration muss vorhandenen DOM claimen statt neu zu rendern.
-3. Der Compiler braucht klare Regeln fuer `let`, `const`, Captures und dynamische Ausdruecke.
+1. Reactivity must carry through normal helper functions and closures.
+2. Hydration must claim existing DOM instead of rerendering it.
+3. The compiler needs clear rules for `let`, `const`, captures, and dynamic expressions.
 
-## Zielbild
+## Target Shape
 
-Beispiel fuer den gewuenschten M2-User-Code:
+Example of the intended M2 user code:
 
 ```tsx
 export function Counter() {
@@ -43,82 +43,82 @@ export function Counter() {
 }
 ```
 
-Erwartete Semantik:
+Expected semantics:
 
-- `count` und `step` sind reaktive Zellen.
-- `label`, `doubled` und `canReset` bleiben normale Funktionen.
-- Wenn diese Funktionen reaktive `let`-Bindings lesen, werden ihre Aufrufe in dynamischen DOM-Slots sauber nachverfolgt.
-- Event-Handler schreiben direkt auf dieselben Zellen.
-- Bei SSR wird HTML plus Marker erzeugt; bei Hydration werden bestehende Nodes weiterverwendet.
+- `count` and `step` are reactive cells.
+- `label`, `doubled`, and `canReset` remain normal functions.
+- If those functions read reactive `let` bindings, their calls are tracked cleanly in dynamic DOM slots.
+- Event handlers write directly to the same cells.
+- SSR produces HTML plus markers; hydration reuses existing nodes.
 
-## M2 Architektur
+## M2 Architecture
 
-M2 besteht aus drei Ebenen:
+M2 consists of three layers:
 
-1. Compiler
-2. Runtime
-3. SSR/Hydration-Protokoll
+1. compiler
+2. runtime
+3. SSR and hydration protocol
 
 ### 1. Compiler
 
-Der Compiler bleibt AST-first, aber bekommt einen expliziten "render graph" statt nur ein blindes Umschreiben von `let` und JSX.
+The compiler stays AST-first, but gets an explicit render graph instead of only blindly rewriting `let` and JSX.
 
-#### 1.1 Komponenten-Erkennung
+#### 1.1 Component detection
 
-M2 bleibt fuer den Moment bei PascalCase-Komponenten.
+For now, M2 stays with PascalCase components.
 
-Gruende:
+Reasons:
 
-- klare Abgrenzung fuer den Transform
-- kompatibel mit JSX-Konventionen
-- vermeidet magische Umformung beliebiger Hilfsfunktionen ausserhalb von Komponenten
+- clear boundary for the transform
+- compatible with JSX conventions
+- avoids magical transformation of arbitrary helper functions outside components
 
-Unterstuetzte Formen:
+Supported forms:
 
 - `function Counter() {}`
 - `const Counter = () => {}`
 - `const Counter = function () {}`
 
-Nicht Ziel von M2:
+Not part of M2:
 
-- automatische Reaktivitaet fuer beliebige Non-Component-Module
-- Klassenkomponenten
+- automatic reactivity for arbitrary non-component modules
+- class components
 
-#### 1.2 Reaktive Bindings
+#### 1.2 Reactive bindings
 
-M2-Regel:
+M2 rule:
 
-- `let` innerhalb eines Komponenten-Scopes wird standardmaessig als reaktives Binding behandelt.
-- `const` bleibt lexical und wird nicht zu State umgeschrieben.
+- `let` inside component scope is treated as a reactive binding by default.
+- `const` stays lexical and is not rewritten into state.
 
-Begruendung:
+Reasoning:
 
-- `let` bildet mutablen State am besten ab.
-- `const` soll normale TS-Semantik behalten.
-- "const reaktiv machen" fuehrt sehr schnell zu schwer vorhersagbarer Semantik.
+- `let` is the best fit for mutable state.
+- `const` should keep normal TypeScript semantics.
+- making `const` reactive too quickly leads to hard-to-predict behavior.
 
-Was sich fuer `const` trotzdem verbessert:
+What improves for `const` anyway:
 
-- `const helper = () => count * 2` funktioniert, weil der Helper beim Ausfuehren einen reaktiven `let` liest.
-- `const view = <div>{count}</div>` wird als JSX-Ausdruck korrekt in einen dynamischen Slot eingebunden.
+- `const helper = () => count * 2` works because the helper reads a reactive `let` when it executes.
+- `const view = <div>{count}</div>` is correctly wired into a dynamic slot as a JSX expression.
 
-Nicht in M2:
+Not in M2:
 
-- `const doubled = count * 2` als automatisch gecachter computed Wert
-- implizite inkrementelle Datenflussanalyse fuer jedes `const`
+- `const doubled = count * 2` as an automatically cached computed value
+- implicit incremental dataflow analysis for every `const`
 
-Falls spaeter gewuenscht, ist das ein M3-Thema: compile-time promoted derived values.
+If wanted later, that is an M3 topic: compile-time promoted derived values.
 
-#### 1.3 Scope- und Capture-Regeln
+#### 1.3 Scope and capture rules
 
-M2 fuehrt die folgende Regel ein:
+M2 introduces the following rule:
 
-- Ein `let` wird zu `cell(...)`.
-- Jeder Read innerhalb des Komponentenbaums wird zu `get(cell)`.
-- Jeder Write wird zu `set(cell, ...)`.
-- Closures muessen keine Sonder-API verwenden; Captures laufen ueber das normale JS-Closure-Modell auf die umgeschriebenen `cell`-Zugriffe.
+- a `let` becomes `cell(...)`
+- every read inside the component tree becomes `get(cell)`
+- every write becomes `set(cell, ...)`
+- closures do not need any special API; captures work through the normal JS closure model over the rewritten `cell` accesses
 
-Beispiel:
+Example:
 
 ```tsx
 let count = 0;
@@ -130,7 +130,7 @@ function doubled() {
 return <p>{doubled()}</p>;
 ```
 
-wird zu:
+becomes:
 
 ```ts
 const __cell_count_0 = __cell(0);
@@ -142,120 +142,120 @@ function doubled() {
 return __h("p", null, __dyn(() => doubled()));
 ```
 
-Das ist der Kern, damit "normale Funktionen" wirklich funktionieren.
+That is the core requirement for making "normal functions" really work.
 
-#### 1.4 Dynamische Ausdruecke
+#### 1.4 Dynamic expressions
 
-M1 wrappt praktisch jeden JSX-Ausdruck in `dyn(() => expr)`. Das ist einfach, aber zu grob.
+M1 wraps practically every JSX expression in `dyn(() => expr)`. That is simple, but too coarse.
 
-M2 trennt zwischen statisch und dynamisch:
+M2 splits expressions into static and dynamic:
 
-- statisch: keine Reads auf reaktive Bindings
-- dynamisch: direkter oder indirekter Read auf reaktive Bindings
+- static: no reads of reactive bindings
+- dynamic: direct or indirect reads of reactive bindings
 
-Compiler-Entscheidung:
+Compiler decision:
 
-- JSX-Text mit reinem Literal bleibt statisch.
-- JSX-Expression wird nur dann zu `dyn(...)`, wenn der Ausdruck reaktive Reads enthaelt oder einen Funktionsaufruf enthaelt, der reaktive Reads enthalten kann.
-- Event-Props bleiben plain functions.
+- JSX text with only literals stays static
+- a JSX expression becomes `dyn(...)` only if it contains reactive reads or a function call that may contain reactive reads
+- event props stay plain functions
 
-Konservative M2-Heuristik:
+Conservative M2 heuristic:
 
-- Wenn ein Ausdruck einen Aufruf einer lokal definierten Funktion enthaelt, behandeln wir ihn als dynamisch, falls diese Funktion innerhalb derselben Komponente irgendein reaktives `let` liest.
-- Das darf false positives produzieren.
-- False negatives duerfen wir uns hier nicht leisten.
+- if an expression contains a call to a locally defined function, treat it as dynamic when that function reads any reactive `let` in the same component
+- false positives are acceptable
+- false negatives are not
 
-Das ist absichtlich konservativer als M1, aber deutlich naeher an der Zielanforderung.
+This is intentionally more conservative than M1, but much closer to the target requirement.
 
-#### 1.5 Funktions-Analyse
+#### 1.5 Function analysis
 
-Der Compiler fuehrt fuer jede Komponente eine lokale Funktionsanalyse durch:
+The compiler performs local function analysis per component:
 
-- sammle alle `let`-Bindings
-- sammle pro lokaler Funktion die gelesenen reaktiven Bindings
-- markiere Funktionen als "reactive reader", wenn sie direkt oder transitiv reactive reads enthalten
+- collect all `let` bindings
+- collect the reactive bindings read by each local function
+- mark functions as "reactive readers" if they directly or transitively contain reactive reads
 
-Algorithmus:
+Algorithm:
 
-1. Finde alle lokalen Funktionsdeklarationen und Funktionsausdruecke.
-2. Baue pro Funktion eine Menge direkter Reads auf reaktive `let`.
-3. Baue einen einfachen Call-Graph fuer lokale Funktionsaufrufe.
-4. Berechne den transitiven Abschluss "function reads reactive state".
-5. Nutze diese Information bei JSX-Expressions und Prop-Expressions.
+1. find all local function declarations and function expressions
+2. build the set of direct reads of reactive `let` per function
+3. build a simple call graph for local function calls
+4. compute the transitive closure for "function reads reactive state"
+5. use that information for JSX expressions and prop expressions
 
-Grenzen von M2:
+Limits of M2:
 
-- nur lokale, statisch aufloesbare Aufrufe
-- kein inter-modulares Dataflow-Tracking
-- keine perfekte Alias-Analyse
+- only local, statically resolvable calls
+- no inter-module dataflow tracking
+- no perfect alias analysis
 
-Das reicht fuer den gewuenschten Stil mit kleinen Helpern in Komponenten.
+That is enough for the intended style of small helpers inside components.
 
-#### 1.6 Statements und Operatoren
+#### 1.6 Statements and operators
 
-M2 uebernimmt den robusten Teil aus M1:
+M2 keeps the robust part from M1:
 
 - `=`
-- `+=`, `-=`, `*=`, `/=`, `%=` usw.
+- `+=`, `-=`, `*=`, `/=`, `%=` and similar
 - `&&=`, `||=`, `??=`
-- `++`, `--` mit korrekter Prefix-/Postfix-Semantik
+- `++`, `--` with correct prefix and postfix semantics
 
-Zusatz fuer M2:
+Additional requirement for M2:
 
-- `for`- und `while`-Kontexte muessen bei Writes korrekt transformiert werden
-- Destructuring bleibt weiterhin explizit ausserhalb des Scopes von M2
+- writes inside `for` and `while` contexts must transform correctly
+- destructuring remains explicitly outside the scope of M2
 
-#### 1.7 Escape Hatches
+#### 1.7 Escape hatches
 
-M2 braucht eine kleine, klare Opt-out-Regel.
+M2 needs a small clear opt-out rule.
 
-Vorschlag:
+Proposal:
 
-- `let raw = noTrack(expr)` bleibt untransformiert
-- oder per Kommentar-Pragma `/* @raw */ let temp = ...`
+- `let raw = noTrack(expr)` stays untransformed
+- or a comment pragma such as `/* @raw */ let temp = ...`
 
-Ziel:
+Goal:
 
-- nicht alles magisch machen
-- Workarounds fuer Hot Paths und Fremdobjekte ermoeglichen
+- do not make everything magical
+- provide a workaround for hot paths and foreign objects
 
-Das sollte sparsam bleiben, aber der Compiler braucht einen offiziellen Notausgang.
+That should stay rare, but the compiler needs an official escape hatch.
 
 ### 2. Runtime
 
-Die Runtime bleibt fein-granular und DOM-direkt. M2 baut auf der aktuellen `cell/get/set/effect/dyn`-Richtung auf.
+The runtime stays fine-grained and DOM-direct. M2 builds on the current `cell/get/set/effect/dyn` direction.
 
 #### 2.1 Scheduler
 
-Der Microtask-Scheduler aus M1 bleibt.
+The microtask scheduler from M1 stays.
 
-Warum:
+Why:
 
-- natuerliches Batching ohne User-API
-- weniger Cascade-Updates
-- DOM-Updates werden konsistent gesammelt
+- natural batching without a user API
+- fewer cascade updates
+- DOM updates are collected consistently
 
-M2 fuegt optional eine interne `batch()`-Funktion hinzu, aber nicht als User-API. Die Runtime braucht sie fuer Hydration und DOM-Claiming.
+M2 may add an internal `batch()` function, but not as a user API. The runtime needs it for hydration and DOM claiming.
 
-#### 2.2 Dynamic Slots statt Full Child Replacement
+#### 2.2 Dynamic slots instead of full child replacement
 
-M1 ersetzt bei dynamischen Children immer die komplette aktuelle Node-Liste. Das ist ok fuer M1, aber zu grob fuer Hydration und groessere Subtrees.
+M1 replaces the whole current node list for dynamic children. That is acceptable for M1, but too coarse for hydration and larger subtrees.
 
-M2 fuehrt explizite Slot-Typen ein:
+M2 introduces explicit slot types:
 
 - `textSlot(read)`
 - `nodeSlot(read)`
 - `attrSlot(el, key, read)`
 - `blockSlot(read)`
 
-Ziel:
+Goal:
 
-- Text nur als Text patchen
-- Attribute nur als Attribute patchen
-- Blocks koennen Node-Ranges ersetzen
-- dieselben Slots funktionieren bei SSR und Hydration
+- patch text as text only
+- patch attributes as attributes only
+- blocks can replace node ranges
+- the same slots work for SSR and hydration
 
-Interne Struktur:
+Internal shape:
 
 ```ts
 type Slot = {
@@ -265,22 +265,22 @@ type Slot = {
 };
 ```
 
-Ein Text-Slot kann dabei optimiert nur einen Text-Node halten; ein Block-Slot verwaltet einen Marker-Bereich.
+A text slot can optimize down to one text node; a block slot manages a marker range.
 
-#### 2.3 Komponenten-Rueckgaben
+#### 2.3 Component return values
 
-M1 verliert bei Function-Components mit mehreren Root-Nodes alle Nodes ausser dem ersten. Das wird in M2 behoben.
+M1 loses all nodes except the first when a function component returns multiple roots. M2 fixes that.
 
-Neue Regel:
+New rule:
 
-- `h(Component, props, children)` darf `Node | DocumentFragment | Node[] | primitive` zurueckbekommen.
-- Die Runtime normalisiert das vollstaendig zu einem stabilen Node-Range.
+- `h(Component, props, children)` may return `Node | DocumentFragment | Node[] | primitive`
+- the runtime fully normalizes that into a stable node range
 
-Das ist auch fuer Hydration wichtig, weil Komponenten sonst keine konsistente Claiming-Grenze haben.
+That also matters for hydration, because components otherwise have no consistent claim boundary.
 
-#### 2.4 DOM-Operationen
+#### 2.4 DOM operations
 
-M2 fuehrt einen kleinen internen Host-Layer ein:
+M2 introduces a small internal host layer:
 
 - `createElement(tag)`
 - `createText(value)`
@@ -289,20 +289,20 @@ M2 fuehrt einen kleinen internen Host-Layer ein:
 - `setProp(el, key, value)`
 - `createMarker(name)`
 
-Warum:
+Why:
 
-- SSR und Client teilen dieselbe Render-Semantik
-- Hydration kann gegen denselben abstrakten Ablauf "claim statt create" fahren
+- SSR and client share the same render semantics
+- hydration can follow the same abstract flow as mount, but with claim instead of create
 
-### 3. SSR/Hydration-Protokoll
+### 3. SSR and hydration protocol
 
-Das ist der wichtigste neue Teil.
+This is the most important new part.
 
-#### 3.1 SSR-Format
+#### 3.1 SSR format
 
-Der Server rendert HTML direkt und setzt Marker fuer dynamische Bereiche.
+The server renders HTML directly and writes markers for dynamic areas.
 
-Beispiel:
+Example:
 
 ```html
 <section class="counter">
@@ -312,54 +312,54 @@ Beispiel:
 </section>
 ```
 
-Alternativ fuer Attribute, wenn Kommentar-Marker unpraktisch sind:
+Alternatively for attributes, when comment markers are awkward:
 
 - `data-hs-a="2:disabled"`
 - `data-hs-s="0"`
 
-Entscheidung fuer M2:
+Decision for M2:
 
-- Node-Dynamik ueber Kommentar-Marker
-- Attribut-Hydration ueber `data-hs-*`
+- node dynamics via comment markers
+- attribute hydration via `data-hs-*`
 
-Grund:
+Reason:
 
-- HTML-Parsen bleibt robust
-- Claiming von Text-/Block-Slots wird einfacher
+- HTML parsing remains robust
+- claiming text and block slots becomes easier
 
-#### 3.2 Client-Hydration
+#### 3.2 Client hydration
 
-Statt `mount()` braucht M2 zwei Pfade:
+Instead of only `mount()`, M2 needs two paths:
 
-- `mount(factory, target)` fuer reines Client-Rendering
-- `hydrate(factory, target)` fuer bestehendes SSR-Markup
+- `mount(factory, target)` for pure client rendering
+- `hydrate(factory, target)` for existing SSR markup
 
-Hydration-Algorithmus:
+Hydration algorithm:
 
-1. Traverse DOM unter `target`.
-2. Baue einen Cursor ueber Marker und Elemente.
-3. Wenn der Compiler `textSlot` oder `blockSlot` erwartet, claime den passenden Marker-Bereich.
-4. Wenn ein statischer Knoten erwartet wird, validiere Tag/Struktur konservativ.
-5. Hake Event-Handler ein.
-6. Registriere Effects, ohne den DOM initial neu aufzubauen.
+1. traverse the DOM under `target`
+2. build a cursor over markers and elements
+3. when the compiler expects `textSlot` or `blockSlot`, claim the matching marker range
+4. when a static node is expected, conservatively validate tag and structure
+5. attach event handlers
+6. register effects without rebuilding the initial DOM
 
-Mismatch-Strategie fuer M2:
+Mismatch strategy for M2:
 
-- in `dev`: Warnung mit Pfadinfo und Fallback auf Client-Remount fuer den kleinsten betroffenen Subtree
-- in `prod`: stiller lokaler Remount des betroffenen Subtrees
+- in `dev`: warn with path info and fall back to client remount for the smallest affected subtree
+- in `prod`: silently remount the affected local subtree
 
-Wir brauchen keinen globalen Hard-Fail.
+A global hard fail is not required.
 
-#### 3.3 Compiler-Ausgabe fuer SSR/Hydration
+#### 3.3 Compiler output for SSR and hydration
 
-Der Compiler erzeugt nicht zwei verschiedene User-APIs, sondern zwei Backends:
+The compiler does not generate two different user APIs, but two backends:
 
-- Client backend
+- client backend
 - SSR backend
 
-Beide nutzen denselben transformierten Komponentenrumpf.
+Both use the same transformed component body.
 
-Beispiel:
+Example:
 
 ```ts
 return __template(
@@ -370,108 +370,108 @@ return __template(
 
 Client:
 
-- erstellt DOM aus Template und registriert Slots
+- creates DOM from the template and registers slots
 
 Server:
 
-- serialisiert Strings plus Marker
+- serializes strings plus markers
 
 Hydrator:
 
-- mappt Slots auf vorhandene Marker
+- maps slots onto existing markers
 
-Das ist sauberer als JSX nur zu `h(...)` umzuschreiben und spaeter SSR "dranzukleben".
+That is cleaner than rewriting JSX only to `h(...)` and trying to bolt SSR on later.
 
-## Empfohlene M2 Arbeitspakete
+## Recommended M2 Work Packages
 
-### Paket 1: Reaktive Helper-Funktionen stabilisieren
+### Package 1: Stabilize reactive helper functions
 
-Ziel:
+Goal:
 
-- lokale Funktionsanalyse
-- transitives Markieren reaktiver Reader
-- `dyn()` nur noch fuer wirklich oder potenziell dynamische Expressions
+- local function analysis
+- transitive marking of reactive readers
+- `dyn()` only for actually or potentially dynamic expressions
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- `const doubled = () => count * 2` aktualisiert im DOM
-- `function label() { return count }` aktualisiert im DOM
-- statische JSX-Expressions erzeugen keinen dynamischen Slot
+- `const doubled = () => count * 2` updates in the DOM
+- `function label() { return count }` updates in the DOM
+- static JSX expressions do not produce a dynamic slot
 
-### Paket 2: Runtime auf Slots umstellen
+### Package 2: Move the runtime to slots
 
-Ziel:
+Goal:
 
-- `mountDynamicChild()` durch Slot-System ersetzen
-- Text-, Attribut- und Block-Slots trennen
+- replace `mountDynamicChild()` with a slot system
+- split text, attribute, and block slots
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Textupdates ersetzen keine ganzen Teilbaeume mehr
-- dynamische Attribute und Booleans verhalten sich stabil
-- Komponenten mit Fragment/mehreren Roots funktionieren
+- text updates no longer replace whole subtrees
+- dynamic attributes and booleans behave stably
+- components with fragments or multiple roots work
 
-### Paket 3: Hydration MVP
+### Package 3: Hydration MVP
 
-Ziel:
+Goal:
 
-- SSR-Markerformat festlegen
-- `hydrate()` implementieren
-- Claiming fuer Text- und Block-Slots
+- define the SSR marker format
+- implement `hydrate()`
+- support claiming for text and block slots
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- servergerendertes Counter-Beispiel hydriert ohne Full Remount
-- Events funktionieren nach Hydration
-- erste State-Aenderung patcht vorhandene Nodes
+- a server-rendered counter example hydrates without a full remount
+- events work after hydration
+- the first state change patches existing nodes
 
-### Paket 4: SSR Compiler-Backend
+### Package 4: SSR compiler backend
 
-Ziel:
+Goal:
 
-- Kompilat fuer HTML-Serialisierung plus Marker
-- Shared Template/Slot-Modell zwischen SSR und Client
+- compile output for HTML serialization plus markers
+- shared template and slot model between SSR and client
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- dieselbe Komponente kann zu HTML und zu DOM kompiliert werden
-- Marker sind deterministisch
-- Hydrator kann das Ergebnis eindeutig claimen
+- the same component can compile to HTML and DOM
+- markers are deterministic
+- the hydrator can claim the result unambiguously
 
-## Was M2 bewusst noch nicht loest
+## What M2 Intentionally Does Not Solve Yet
 
 - keyed list diffing
-- stores/proxies fuer tiefe Objekt-Reaktivitaet
-- suspense/async resources
+- stores or proxies for deep object reactivity
+- suspense and async resources
 - devtools
-- inter-modulare reactive analysis
-- automatische computed-Caches fuer `const`-Ausdruecke
+- inter-module reactive analysis
+- automatic computed caches for `const` expressions
 
-Diese Punkte gehoeren in spaetere Milestones.
+Those belong to later milestones.
 
-## Konkrete Compiler-Regeln fuer M2
+## Concrete Compiler Rules for M2
 
-Kurzfassung:
+Short version:
 
-- `let` im Komponenten-Scope: reaktiv
-- `const`: nicht reaktiv umschreiben
-- Reads auf reaktive `let`: `get(cell)`
-- Writes auf reaktive `let`: `set(cell, next)`
-- lokale Funktionen mit reaktiven Reads: als reactive reader markieren
-- JSX-Expressions/Props mit reactive reader oder reactive read: `dyn(() => expr)`
-- Event-Props: nie `dyn`, immer plain function
+- `let` in component scope: reactive
+- `const`: do not rewrite into reactivity
+- reads of reactive `let`: `get(cell)`
+- writes to reactive `let`: `set(cell, next)`
+- local functions with reactive reads: mark as reactive readers
+- JSX expressions or props with a reactive reader or reactive read: `dyn(() => expr)`
+- event props: never `dyn`, always plain function
 
-Das ist die kleinste Regelmenge, die sich fuer User noch "magisch" anfuehlt, aber fuer den Compiler kontrollierbar bleibt.
+That is the smallest rule set that still feels magical to users but remains controllable for the compiler.
 
-## Empfehlung
+## Recommendation
 
-M2 sollte auf der aktuellen Hel-Codebasis aufsetzen, nicht auf der Claude-Version.
+M2 should build on the current Hel codebase, not on the Claude version.
 
-Gruende:
+Reasons:
 
-- das Scoping-Modell ist bereits sauberer
-- der Scheduler ist bereits brauchbar
-- der Compiler ist naeher an einer echten Analyse als an string-basierten Heuristiken
-- Vite-Integration beschleunigt die Iteration massiv
+- the scoping model is already cleaner
+- the scheduler is already usable
+- the compiler is closer to real analysis than to string-based heuristics
+- Vite integration massively speeds up iteration
 
-Die richtige Richtung ist nicht "weniger Magie", sondern "praeziser kompilierte Magie".
+The correct direction is not "less magic", but "more precisely compiled magic".

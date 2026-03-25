@@ -274,8 +274,8 @@ export function App() {
           <span class="eyebrow">Compiler-first UI runtime</span>
           <h1>Hel Todo Demo</h1>
           <p>
-            Kleine echte App mit <code>store()</code>, <code>For</code>, <code>Show</code>,
-            einem einfachen Router und lokaler Persistenz.
+            Small real app using <code>store()</code>, <code>For</code>, <code>Show</code>, a
+            simple router, and local persistence.
           </p>
         </div>
       </header>

@@ -35,7 +35,7 @@ export function App() {
   return (
     <main class="shell">
       <header class="hero">
-        <p class="eyebrow">hel ssr starter</p>
+        <p class="eyebrow">Hel SSR starter</p>
         <h1>SSR Consumer Example</h1>
         <p class="copy">This project consumes `hel`, `hel/server` and `hel/vite` outside the framework workspace.</p>
       </header>
@@ -104,7 +104,7 @@ function StoryPage(props: { id: string }) {
     <section class="panel">
       <Show when={story()} fallback={<p>Missing story.</p>}>
         <article>
-          <p class="eyebrow">story detail</p>
+          <p class="eyebrow">Story detail</p>
           <h2>{story()?.title ?? "Unknown"}</h2>
           <p>Status: {story()?.status ?? "missing"}</p>
           <p>View mode: {mode()}</p>

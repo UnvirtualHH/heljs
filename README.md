@@ -2,40 +2,45 @@
 
 ![Hel logo](public/hel-192.png)
 
-Compiler-first Prototyp fuer ein Framework ohne Virtual DOM.
+A compiler-first prototype for a framework without a virtual DOM.
 
-Ziel ist Solid-artige Fine-Grained-Reaktivitaet, aber mit normalem TypeScript im User-Code:
+The goal is Solid-style fine-grained reactivity, but with normal TypeScript in user code:
 
-- `let` fuer lokalen State
-- normale Funktionen und Closures
-- JSX ohne `signal()`, `effect()`, `memo()` im User-Code
-- HTML-first Routing mit normalen `<a href>`
-- direkte DOM-Updates statt VDOM-Diffing
+- `let` for local state
+- normal functions and closures
+- JSX without `signal()`, `effect()`, or `memo()` in user code
+- HTML-first routing with normal `<a href>` links
+- direct DOM updates instead of VDOM diffing
 
-Der aktuelle Stand ist ein brauchbarer M2-Prototyp mit Client-Rendering, SSR-HTML-Output und Hydration-MVP.
+The current state is a usable M2 prototype with client rendering, SSR HTML output, and a hydration MVP.
 
-Weiterfuehrende Doku:
+Additional docs:
 
-- Einstieg: [GETTING-STARTED.md](C:/projects/hellscript/codex%20version/docs/GETTING-STARTED.md)
-- Release-/Publish-Ablauf: [RELEASING.md](C:/projects/hellscript/codex%20version/docs/RELEASING.md)
-- Architektur: [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
+- Getting started: [GETTING-STARTED.md](C:/projects/hellscript/codex%20version/docs/GETTING-STARTED.md)
+- API reference: [API-REFERENCE.md](C:/projects/hellscript/codex%20version/docs/API-REFERENCE.md)
+- SSR and hydration: [SSR-HYDRATION.md](C:/projects/hellscript/codex%20version/docs/SSR-HYDRATION.md)
+- Reactivity model: [REACTIVITY.md](C:/projects/hellscript/codex%20version/docs/REACTIVITY.md)
+- Performance guide: [PERFORMANCE.md](C:/projects/hellscript/codex%20version/docs/PERFORMANCE.md)
+- Limits and non-goals: [LIMITS-AND-NON-GOALS.md](C:/projects/hellscript/codex%20version/docs/LIMITS-AND-NON-GOALS.md)
+- Release and publish flow: [RELEASING.md](C:/projects/hellscript/codex%20version/docs/RELEASING.md)
+- Architecture: [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
 
-## Projektstruktur
+## Project Structure
 
-Die aktive Struktur ist jetzt fachlich getrennt:
+The active structure is now split by responsibility:
 
 - [src/demo](C:/projects/hellscript/codex%20version/src/demo)
-  - Demo-App, Seiten, Daten, Entrys, Styles
+  - demo app, pages, data, entry points, styles
 - [src/framework/compiler](C:/projects/hellscript/codex%20version/src/framework/compiler)
-  - AST-Transform und Compiler-Metriken
+  - AST transform and compiler metrics
 - [src/framework/runtime](C:/projects/hellscript/codex%20version/src/framework/runtime)
-  - Client-Runtime, DOM, Hydration, Router, Slots
+  - client runtime, DOM, hydration, router, slots
 - [src/framework/server](C:/projects/hellscript/codex%20version/src/framework/server)
-  - SSR-Runtime, Router, String-Renderer
+  - SSR runtime, router, string renderer
 - [src/framework/package](C:/projects/hellscript/codex%20version/src/framework/package)
-  - Paket-Entrypoints fuer externe Projekte
+  - package entry points for external projects
 
-Aktive Einstiegspunkte im Framework-Code sind:
+Active framework entry points are:
 
 - [src/framework/compiler/plugin.ts](C:/projects/hellscript/codex%20version/src/framework/compiler/plugin.ts)
 - [src/framework/runtime/index.ts](C:/projects/hellscript/codex%20version/src/framework/runtime/index.ts)
@@ -44,22 +49,22 @@ Aktive Einstiegspunkte im Framework-Code sind:
 - [src/framework/package/server.ts](C:/projects/hellscript/codex%20version/src/framework/package/server.ts)
 - [src/framework/package/vite.ts](C:/projects/hellscript/codex%20version/src/framework/package/vite.ts)
 
-Flach im `src/framework`-Root bleiben bewusst nur noch:
+The only files intentionally left flat in `src/framework` are:
 
 - [shared.ts](C:/projects/hellscript/codex%20version/src/framework/shared.ts)
 - [jsx.d.ts](C:/projects/hellscript/codex%20version/src/framework/jsx.d.ts)
 - [react-bench-modules.d.ts](C:/projects/hellscript/codex%20version/src/framework/react-bench-modules.d.ts)
 
-## Starten
+## Running the Project
 
 ```bash
 npm install
 npm run dev
 ```
 
-Dann `http://localhost:5173` oeffnen.
+Then open `http://localhost:5173`.
 
-Build pruefen:
+Useful verification commands:
 
 ```bash
 npm run typecheck
@@ -70,43 +75,43 @@ npm run bench
 npm run bench:runtime
 ```
 
-`npm run build` macht jetzt drei Dinge:
+`npm run build` now does three things:
 
-- Client-Bundle bauen
-- SSR-Bundle fuer das Rendering erzeugen
-- `dist/index.html` mit prerendered App-HTML fuellen
+- builds the client bundle
+- builds the SSR bundle used for rendering
+- fills `dist/index.html` with prerendered app HTML
 
-Im Dev-Server (`npm run dev`) wird ohne handgeschriebenes Demo-HTML normal gemountet. Im Build-Output wird dagegen echtes prerendered Markup erzeugt, das der Client anschliessend hydriert.
+In the dev server (`npm run dev`) the app mounts normally without handwritten demo HTML. In the build output, real prerendered markup is generated and then hydrated by the client.
 
-`npm run bench` fuehrt den aktuellen Mikro-Benchmark-Harness fuer Counter-, Tabellen- und Listen-Pfade ueber Vitest Bench aus, inklusive lokaler Vergleichsbasis gegen naive Direkt-DOM-Updates, Vue und React. Eine belastbare Solid-Baseline ist im aktuellen Vitest-/happy-dom-Setup noch offen.
+`npm run bench` runs the current micro-benchmark harness through Vitest Bench for counter, table, and list paths, including local comparisons against naive direct DOM updates, Vue, and React. A reliable Solid baseline is still open in the current Vitest and happy-dom setup.
 
-`npm run bench:runtime` ist der robustere Vergleichslauf ausserhalb von Vitest. Er nutzt feste Iterationen und mehrere Runden pro Szenario und schreibt die Ergebnisse nach `bench-runtime-results.json`.
+`npm run bench:runtime` is the more robust runtime comparison outside Vitest. It uses fixed iterations and multiple rounds per scenario and writes results to `bench-runtime-results.json`.
 
-## Als Paket benutzen
+## Using Hel as a Package
 
-Der Repo-Build und der Paket-Build sind absichtlich getrennt:
+The repo build and the package build are intentionally separate:
 
-- `npm run build` baut Demo, SSR und Prerender-Output
-- `npm run build:package` baut die konsumierbaren Paket-Artefakte nach `dist/package`
+- `npm run build` builds the demo, SSR, and prerender output
+- `npm run build:package` builds the consumable package artifacts into `dist/package`
 
-Die aktuellen Paket-Entrypoints sind:
+The current package entry points are:
 
-- `hel` oder `hel/runtime`
+- `hel` or `hel/runtime`
 - `hel/server`
 - `hel/vite`
 
-Lokal in einem zweiten Projekt geht das im Moment z. B. so:
+For a local install in another project, the current flow is for example:
 
 ```bash
-# im Hel-Repo
+# in the Hel repo
 npm install
 npm run build:package
 
-# im anderen Projekt
+# in the other project
 npm install ../hel
 ```
 
-Beispiel-Imports:
+Example imports:
 
 ```ts
 import { mount, h } from "hel";
@@ -114,50 +119,50 @@ import { renderToString } from "hel/server";
 import { helMagicPlugin } from "hel/vite";
 ```
 
-Ein verifizierter externer Consumer liegt jetzt auch direkt im Repo:
+Verified external consumers live in this repo as well:
 
 - [starter](C:/projects/hellscript/codex%20version/starter)
 - [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
 
-Der Starter wird bewusst als eigenes kleines Projekt gebaut und typgeprueft, statt nur gegen interne Source-Aliases zu laufen.
+Those starters are built and typechecked as separate projects instead of relying on internal source aliases.
 
-`starter` ist der kleinste Client-Only-Consumer.
+`starter` is the smallest client-only consumer.
 
-`starter-ssr` zeigt den aktuellen SSR-Pfad als externes Projekt:
+`starter-ssr` shows the current SSR path as an external project:
 
-- `hel/runtime` im Client-Build
-- `hel/server` im SSR-Build
-- Prerender-Schritt ueber eine kleine `entry-server.tsx`
+- `hel/runtime` in the client build
+- `hel/server` in the SSR build
+- a prerender step via a small `entry-server.tsx`
 
-Wichtig fuer externe SSR-Consumer:
+Important for external SSR consumers:
 
-- der Client-Code importiert weiterhin normal aus `hel/runtime`
-- der SSR-Build muss `hel/runtime` auf `hel/server` aliasen
-- das ist im Beispiel in [starter-ssr/vite.config.ts](C:/projects/hellscript/codex%20version/starter-ssr/vite.config.ts) bereits korrekt verdrahtet
+- client code still imports from `hel/runtime`
+- the SSR build must alias `hel/runtime` to `hel/server`
+- that wiring is already shown in [starter-ssr/vite.config.ts](C:/projects/hellscript/codex%20version/starter-ssr/vite.config.ts)
 
-Zur schnellen Paketpruefung gibt es jetzt ausserdem:
+For fast package verification there are now two scripts:
 
 ```bash
 npm run verify:package
 ```
 
-Das baut das Paket und prueft danach beide externen Consumer (`starter` und `starter-ssr`) gegen die veroeffentlichte Paketoberflaeche.
+This builds the package and then validates both external consumers (`starter` and `starter-ssr`) against the published package surface.
 
-Wenn das Paket bereits gebaut ist, reicht auch:
+If the package has already been built, this is enough:
 
 ```bash
 npm run verify:starters
 ```
 
-Wichtig:
+Important notes:
 
-- der aktuelle Paket-Build ist ESM-only
-- vor lokalem Installieren sollte `npm run build:package` gelaufen sein
-- das Repo ist noch kein finaler Release-Kandidat, aber die Paketstruktur ist jetzt erstmals konsumierbar
+- the package build is currently ESM-only
+- `npm run build:package` should run before local installation
+- the repo is not a final release candidate yet, but the package structure is now consumable
 
-## Wie man es benutzt
+## How to Use It
 
-### 1. Komponenten in PascalCase schreiben
+### 1. Write components in PascalCase
 
 ```tsx
 export function Counter() {
@@ -171,17 +176,17 @@ export function Counter() {
 }
 ```
 
-Unterstuetzt sind aktuell:
+Currently supported:
 
 - `function Counter() {}`
 - `const Counter = () => {}`
 - `const Counter = function () {}`
 
-Der Compiler transformiert nur Komponenten mit PascalCase-Namen.
+The compiler only transforms components with PascalCase names.
 
-### 2. `let` ist reaktiver lokaler State
+### 2. `let` is reactive local state
 
-Alles, was im Komponenten-Scope als `let` deklariert wird, wird als mutable reactive cell behandelt.
+Everything declared as `let` in component scope is treated as mutable reactive cell state.
 
 ```tsx
 export function Counter() {
@@ -201,7 +206,7 @@ export function Counter() {
 }
 ```
 
-Unterstuetzt sind auch:
+Also supported:
 
 - `count = 1`
 - `count += 2`
@@ -209,14 +214,14 @@ Unterstuetzt sind auch:
 - `count ??= 1`
 - `count++`, `count--`
 
-Nicht unterstuetzt in diesem Stand:
+Not supported in the current state:
 
-- Destructuring bei reaktiven `let`-Deklarationen
-- Komponenten-Parameter, die kein einfacher Identifier sind
+- destructuring for reactive `let` declarations
+- component parameters that are not a simple identifier
 
-Bei reaktivem `let`-Destructuring wirft der Compiler jetzt bewusst einen klaren Fehler, statt still kaputten Code zu erzeugen.
+For reactive `let` destructuring, the compiler now throws a clear error instead of silently producing broken code.
 
-Dasselbe gilt aktuell fuer:
+The same applies to this pattern for now:
 
 ```tsx
 function TodoCard({ todo }) {
@@ -224,7 +229,7 @@ function TodoCard({ todo }) {
 }
 ```
 
-Im aktuellen Stand sollst du stattdessen ein `props`-Identifier annehmen und innerhalb der Funktion destructuren:
+At the moment you should accept a `props` identifier and destructure inside the function instead:
 
 ```tsx
 function TodoCard(props) {
@@ -233,11 +238,11 @@ function TodoCard(props) {
 }
 ```
 
-Default-Parameter und Rest-Parameter fuer Komponenten werden im aktuellen Stand ebenfalls bewusst mit einem klaren Compiler-Fehler blockiert.
+Default parameters and rest parameters for components are also intentionally blocked with a clear compiler error in the current state.
 
-### 3. Normale Helper-Funktionen funktionieren
+### 3. Normal helper functions work
 
-Du kannst normale lokale Funktionen oder `const`-Arrow-Functions schreiben. Wenn sie reaktive `let`-Bindings lesen, erkennt der Compiler das und verdrahtet den Aufruf in einen reaktiven Slot.
+You can write normal local functions or `const` arrow functions. If they read reactive `let` bindings, the compiler detects that and wires the call into a reactive slot.
 
 ```tsx
 export function Counter() {
@@ -262,28 +267,28 @@ export function Counter() {
 }
 ```
 
-Das ist ein wichtiger Unterschied zu einfacheren Ansatzen, die nur direkte JSX-Reads reaktiv machen.
+That is an important difference from simpler approaches that only make direct JSX reads reactive.
 
-### 4. `const` bleibt normales TypeScript
+### 4. `const` stays normal TypeScript
 
-`const` wird nicht in State umgeschrieben.
+`const` is not rewritten into state.
 
 ```tsx
 const factor = 2;
 const doubled = () => count * factor;
 ```
 
-Das funktioniert, weil `doubled()` beim Ausfuehren reaktiven State liest.
+This works because `doubled()` reads reactive state when it executes.
 
-Was aktuell **nicht** passiert:
+What does **not** happen at the moment:
 
 ```tsx
 const doubled = count * 2;
 ```
 
-Das wird **nicht** zu einem gecachten `memo` oder `computed`. Es ist einfach ein normaler Ausdruck zur Renderzeit.
+This does **not** become a cached `memo` or `computed`. It is simply a normal expression evaluated at render time.
 
-### 5. JSX bleibt direkt und ohne VDOM
+### 5. JSX stays direct and VDOM-free
 
 ```tsx
 return (
@@ -296,15 +301,15 @@ return (
 );
 ```
 
-Der Compiler erzeugt daraus direkte DOM-Aufrufe und spezialisierte Slots fuer:
+The compiler turns this into direct DOM calls and specialized slots for:
 
-- Text
-- Attribute/Properties
-- Block-Content
+- text
+- attributes and properties
+- block content
 
-### 6. Arrays und Listen
+### 6. Arrays and lists
 
-Normale Arrays und `map(...)` funktionieren bereits:
+Normal arrays and `map(...)` already work:
 
 ```tsx
 <ul>
@@ -314,9 +319,9 @@ Normale Arrays und `map(...)` funktionieren bereits:
 </ul>
 ```
 
-Das ist aktuell die **unkeyd** Listen-Variante. Sie ist okay fuer einfache Faelle, ersetzt aber bei strukturellen Aenderungen eher grober.
+That is the current **unkeyed** list variant. It is fine for simple cases, but it replaces things more coarsely on structural changes.
 
-Wenn du stabile Keys und DOM-Wiederverwendung bei Reorder willst, nutze die explizite `list(...)`-API:
+If you want stable keys and DOM reuse on reorder, use the explicit `list(...)` API:
 
 ```tsx
 import { list } from "hel/runtime";
@@ -330,18 +335,18 @@ import { list } from "hel/runtime";
 </ul>
 ```
 
-Aktuelle Semantik von `list(...)`:
+Current `list(...)` semantics:
 
-- keyed DOM-Wiederverwendung bei Reorder
-- SSR/Hydration-kompatibel
-- jedes Item muss genau **einen** Root-Node rendern
-- bewusst noch eine Runtime-API, keine Compiler-Magie
+- keyed DOM reuse on reorder
+- SSR and hydration compatible
+- each item must render exactly **one** root node
+- intentionally still a runtime API, not compiler magic
 
-Pragmatisch heisst das:
+Pragmatically this means:
 
-- `map(...)` fuer einfache Listen
-- `list(...)` fuer stabile, keyed Listen
-- optional `For` als Control-Flow-Helper ueber beiden Stilen
+- `map(...)` for simple lists
+- `list(...)` for stable keyed lists
+- optional `For` as a control-flow helper over both styles
 
 ```tsx
 import { For } from "hel/runtime";
@@ -353,9 +358,9 @@ import { For } from "hel/runtime";
 </ul>
 ```
 
-Ohne `key` rendert `For` einfach ueber `map(...)`. Mit `key` nutzt es intern die keyed `list(...)`-Semantik.
+Without `key`, `For` simply renders through `map(...)`. With `key`, it uses keyed `list(...)` semantics internally.
 
-`For` kann ausserdem direkt einen leeren Zustand rendern:
+`For` can also render an empty state directly:
 
 ```tsx
 <For each={todos} fallback={<p>No todos yet.</p>}>
@@ -363,7 +368,7 @@ Ohne `key` rendert `For` einfach ueber `map(...)`. Mit `key` nutzt es intern die
 </For>
 ```
 
-Fuer Branches gibt es optional auch `Show`:
+For branches there is also optional `Show`:
 
 ```tsx
 import { Show } from "hel/runtime";
@@ -373,15 +378,15 @@ import { Show } from "hel/runtime";
 </Show>
 ```
 
-Normale Ternaries in JSX bleiben ebenfalls der Standard:
+Normal ternaries in JSX remain the default as well:
 
 ```tsx
 {visible ? <Panel /> : <Empty />}
 ```
 
-### 7. Form-Inputs und Todos
+### 7. Form inputs and todos
 
-Kontrollierte Inputs funktionieren bereits mit normalen Events und `let`-State:
+Controlled inputs already work with normal events and `let` state:
 
 ```tsx
 let newTitle = "";
@@ -396,18 +401,18 @@ function addTodo(event: Event) {
 }
 ```
 
-Der aktuelle Stil ist dabei bewusst einfach:
+The current style is intentionally simple:
 
 - `todos = [...todos, next]`
 - `todos = todos.map(...)`
 - `todos = todos.filter(...)`
-- oder lokaler Proxy-Store mit Mutationen
+- or a local proxy store with mutations
 
-Ein tiefer offizieller Store mit eigener Setter-API wie `setTodos(i, "done", true)` ist weiterhin absichtlich nicht Teil des Core.
+A deeper official store with a setter API like `setTodos(i, "done", true)` is still intentionally not part of core.
 
-### 8. Minimaler Tiefer Store
+### 8. Minimal deep store
 
-Fuer Arrays und Objekte gibt es jetzt zusaetzlich einen kleinen Proxy-Store:
+For arrays and objects there is also a small proxy store:
 
 ```tsx
 import { store } from "hel/runtime";
@@ -421,18 +426,18 @@ todos[0].done = true;
 todos[0].title = "Ship Hel v0.1";
 ```
 
-Wichtige Semantik:
+Important semantics:
 
-- absichtlich grob-granular pro Store
-- tiefe Property- und Array-Mutationen triggern Reaktivitaet
-- keine feingranulare Property-Dependency-Graphen wie bei Solid Stores
-- gut genug fuer kleine bis mittlere lokale Datenstrukturen
+- intentionally coarse-grained per store
+- deep property and array mutations trigger reactivity
+- no fine-grained property dependency graph like Solid stores
+- good enough for small to medium local data structures
 
-Der Compiler erkennt `store(...)`-Reads in JSX und lokalen Helper-Funktionen als reaktive Abhaengigkeiten.
+The compiler recognizes `store(...)` reads in JSX and local helper functions as reactive dependencies.
 
-### 9. HTML-First Router
+### 9. HTML-first router
 
-Der aktuelle Router ist bewusst klein:
+The current router is intentionally small:
 
 ```tsx
 import { createRouter } from "hel/runtime";
@@ -454,19 +459,19 @@ return (
 );
 ```
 
-Wichtige Semantik:
+Important semantics:
 
-- normale `<a href>`-Tags sind der Standard
-- der Router interceptet nur interne Links, die er selbst kennt
-- externe Links, Modifier-Keys und `target` bleiben normales Browser-Verhalten
-- `router.view()` liefert direkt einen renderbaren Block
-- `router.isActive("/about")` kann direkt in Props verwendet werden
-- `router.params()` liefert Route-Parameter fuer den aktuell gematchten Pfad
-- `router.query()` liefert die aktuellen Query-Parameter als einfaches Objekt
-- `router.navigate(-1)` und `router.navigate(1)` reichen an die Browser-History durch
-- JSX-Komponenten mit reaktiven Props laufen im aktuellen Compilerpfad wieder stabil, auch fuer Formular-Subtrees
+- normal `<a href>` tags are the default
+- the router only intercepts internal links that it knows about
+- external links, modifier keys, and `target` keep normal browser behavior
+- `router.view()` returns a renderable block directly
+- `router.isActive("/about")` can be used directly in props
+- `router.params()` returns route params for the currently matched path
+- `router.query()` returns current query params as a plain object
+- `router.navigate(-1)` and `router.navigate(1)` delegate to browser history
+- JSX components with reactive props are stable again in the current compiler path, including form subtrees
 
-Beispiel fuer Params:
+Example for params:
 
 ```tsx
 const router = createRouter([
@@ -475,7 +480,7 @@ const router = createRouter([
 ]);
 ```
 
-Beispiel fuer Query-Parameter:
+Example for query params:
 
 ```tsx
 const router = createRouter([
@@ -483,7 +488,7 @@ const router = createRouter([
 ]);
 ```
 
-Beispiel fuer History-Convenience:
+Example for history convenience:
 
 ```tsx
 <button type="button" onClick={() => router.navigate(-1)}>
@@ -491,7 +496,7 @@ Beispiel fuer History-Convenience:
 </button>
 ```
 
-Beispiel:
+Example:
 
 ```tsx
 <a href="/about" data-active={router.isActive("/about")}>
@@ -499,95 +504,95 @@ Beispiel:
 </a>
 ```
 
-Absichtlich noch nicht drin:
+Intentionally not included yet:
 
 - nested routes
 - guards
-- loader/actions
+- loaders or actions
 
-## Was intern zu was wird
+## What Internally Becomes What
 
-Die User-API ist absichtlich "magisch". Intern landet sie aber auf einer kleinen Runtime.
+The user-facing API is intentionally magical. Internally it still lands on a small runtime.
 
-### `let` wird zu einer Cell
+### `let` becomes a cell
 
-User-Code:
+User code:
 
 ```tsx
 let count = 0;
 count++;
 ```
 
-Interne Richtung:
+Internal direction:
 
 ```ts
 const __cell_count_0 = __cell(0);
 __set(__cell_count_0, __get(__cell_count_0) + 1);
 ```
 
-Praktisch entspricht das in der Denke einem versteckten `signal()` oder `ref()`, nur mit anderer Runtime-Form.
+In practice that is conceptually a hidden `signal()` or `ref()`, just with a different runtime shape.
 
-### Reads werden zu `get(...)`
+### Reads become `get(...)`
 
-User-Code:
+User code:
 
 ```tsx
 <p>{count}</p>
 ```
 
-Interne Richtung:
+Internal direction:
 
 ```ts
 __h("p", null, __dynText(() => __get(__cell_count_0)));
 ```
 
-### Writes werden zu `set(...)`
+### Writes become `set(...)`
 
-User-Code:
+User code:
 
 ```tsx
 count = 10;
 count += step;
 ```
 
-Interne Richtung:
+Internal direction:
 
 ```ts
 __set(__cell_count_0, 10);
 __set(__cell_count_0, __get(__cell_count_0) + __get(__cell_step_1));
 ```
 
-### Text-Expressions werden zu Slot-Effekten
+### Text expressions become slot effects
 
-User-Code:
+User code:
 
 ```tsx
 <p>{count}</p>
 ```
 
-Interne Richtung:
+Internal direction:
 
 ```ts
 __dynText(() => __get(__cell_count_0))
 ```
 
-Runtime-Semantik:
+Runtime semantics:
 
-- erstellt genau einen Text-Node
-- registriert einen `effect(...)`
-- patched spaeter nur `text.data`
+- creates exactly one text node
+- registers one `effect(...)`
+- later patches only `text.data`
 
-Das ist vom Verhalten her aehnlich zu einem sehr kleinen, impliziten `effect` + Text-Binding.
+Behaviorally that is similar to a very small implicit `effect` plus text binding.
 
-### Dynamische Props werden zu Attribut-/Property-Slots
+### Dynamic props become attribute and property slots
 
-User-Code:
+User code:
 
 ```tsx
 <button disabled={count === 0}>Reset</button>
 ```
 
-Interne Richtung:
+Internal direction:
 
 ```ts
 __h("button", {
@@ -595,102 +600,102 @@ __h("button", {
 })
 ```
 
-Runtime-Semantik:
+Runtime semantics:
 
-- registriert einen `effect(...)`
-- patched spaeter nur das betroffene Attribut bzw. Property
+- registers one `effect(...)`
+- later patches only the relevant attribute or property
 
-### Dynamische Blöcke werden zu Block-Slots
+### Dynamic blocks become block slots
 
-User-Code:
+User code:
 
 ```tsx
 {visible ? <Panel /> : <Empty />}
 ```
 
-Interne Richtung:
+Internal direction:
 
 ```ts
 __branch(() => __get(__cell_visible_0), () => __h(Panel, null), () => __h(Empty, null))
 ```
 
-Runtime-Semantik:
+Runtime semantics:
 
-- markiert einen DOM-Bereich
-- ersetzt nur diesen Bereich, nicht den gesamten Parent
+- marks one DOM range
+- only replaces that range, not the entire parent
 
-## Was wird zu `signal`, `effect`, `memo`?
+## What maps to `signal`, `effect`, `memo`?
 
-Kurz gesagt:
+In short:
 
-| User-Code-Idee | Interne Entsprechung im aktuellen Prototyp |
+| User-code idea | Internal equivalent in the current prototype |
 | --- | --- |
 | `let count = 0` | `cell(0)` |
-| `count` lesen | `get(cell)` |
+| read `count` | `get(cell)` |
 | `count = ...`, `count++` | `set(cell, ...)` |
-| `{count}` in JSX | `dynText(() => get(cell))` plus interner `effect(...)` |
-| `disabled={count === 0}` | `dynAttr(() => ...)` plus interner `effect(...)` |
-| `{visible ? <A/> : <B/>}` | spezialisierter `branch(...)`-Slot plus interner `effect(...)` |
-| `const helper = () => count * 2` | normaler Helper, der bei Aufruf `get(cell)` liest |
-| `memo(() => count * 2)` | aktuell **kein direktes Gegenstueck** |
+| `{count}` in JSX | `dynText(() => get(cell))` plus internal `effect(...)` |
+| `disabled={count === 0}` | `dynAttr(() => ...)` plus internal `effect(...)` |
+| `{visible ? <A/> : <B/>}` | specialized `branch(...)` slot plus internal `effect(...)` |
+| `const helper = () => count * 2` | normal helper that reads `get(cell)` when called |
+| `memo(() => count * 2)` | currently **no direct counterpart** |
 
-Wichtig:
+Important:
 
-- Ein explizites `signal()` im User-Code gibt es nicht.
-- Ein explizites `effect()` im User-Code gibt es nicht.
-- Ein explizites `memo()` im User-Code gibt es auch nicht.
-- Die Rolle von `effect()` uebernimmt die Runtime implizit pro Slot.
-- Die Rolle von `signal()` uebernehmen die compiler-erzeugten `cell/get/set`-Zugriffe.
-- Fuer `memo()` gibt es aktuell nur die pragmatische Form "normaler Helper, der bei Bedarf neu berechnet wird".
+- there is no explicit `signal()` in user code
+- there is no explicit `effect()` in user code
+- there is no explicit `memo()` in user code either
+- the runtime implicitly takes the role of `effect()` per slot
+- compiler-generated `cell/get/set` takes the role of `signal()`
+- for `memo()` there is currently only the pragmatic form of a normal helper recalculated when needed
 
-Das heisst: Ein Helper wie
+That means a helper like
 
 ```tsx
 const doubled = () => count * 2;
 ```
 
-ist semantisch eher ein **uncached derived getter** als ein echtes `memo`.
+is semantically closer to an **uncached derived getter** than to a true `memo`.
 
-## Performance-Eigenschaften des aktuellen Stands
+## Current Performance Characteristics
 
-Der aktuelle Stand achtet bereits auf ein paar wichtige Dinge:
+The current state already does a few important things:
 
-- Fine-grained Subscription Tracking in der Runtime
-- Microtask-Scheduler statt synchroner Cascade-Updates
-- Text-Slots patchen nur Text-Nodes
-- Attr-Slots patchen nur das jeweilige Attribut/Property
-- Nur echte Strukturwechsel laufen ueber Block-Slots
-- Conditional-Toggles laufen im Hot Path ueber spezialisierte Branch-Slots statt generischem `dynBlock(...)`
-- keyed `list(...)` kann DOM-Nodes bei Reorder wiederverwenden
-- Kein Virtual DOM
+- fine-grained subscription tracking in the runtime
+- a microtask scheduler instead of synchronous cascade updates
+- text slots patch only text nodes
+- attr slots patch only the relevant attribute or property
+- only real structural changes go through block slots
+- conditional toggles in the hot path use specialized branch slots instead of generic `dynBlock(...)`
+- keyed `list(...)` can reuse DOM nodes on reorder
+- no virtual DOM
 
-Was noch fehlt:
+Still missing:
 
-- gecachte derived values / echtes `memo`
-- optimierte Template-Cloning-Pfade fuer statische Teilbaeume
+- cached derived values or a true `memo`
+- optimized template-cloning paths for static subtrees
 
-## Aktuelle Grenzen
+## Current Limits
 
-- Nur PascalCase-Komponenten werden transformiert.
-- Nur `let` wird automatisch zu reactive state.
-- Destructuring fuer reactive `let` ist noch nicht implementiert.
-- Lokale Funktionsanalyse ist bewusst konservativ und nur intra-component.
-- Hydration deckt aktuell den vorgesehenen Happy Path samt Mismatch-Fallback ab, aber nicht jede strukturelle Randbedingung.
-- Der eingebaute `store(...)` ist bewusst grob-granular und lokal.
-- `list(...)` ist noch die offizielle keyed Story; automatische keyed Compiler-Erkennung gibt es noch nicht.
+- Only PascalCase components are transformed.
+- Only `let` becomes automatic reactive state.
+- Destructuring for reactive `let` is not implemented yet.
+- Local function analysis is intentionally conservative and intra-component only.
+- Hydration currently covers the intended happy path and mismatch fallback, but not every structural edge case.
+- The built-in `store(...)` is intentionally coarse-grained and local.
+- `list(...)` is still the official keyed story; automatic keyed compiler detection does not exist yet.
 
-## Relevante Dateien
+## Relevant Files
 
-- `src/framework/compiler/plugin.ts`: AST-Transform fuer Komponenten, `let`, Helper-Analyse und JSX-Slots
-- `src/framework/compiler/metrics.ts`: Compiler-Metriken fuer Transform-Ausgaben
-- `src/framework/runtime/index.ts`: Public Runtime-API und DOM-Entry-Punkte
-- `src/framework/runtime/*`: aufgeteilte Runtime fuer Core, DOM, Patching, Slots, Router und Hydration
-- `src/framework/server/index.ts`: Public SSR-API
-- `src/framework/server/*`: aufgeteilter Server-Renderer und SSR-Router
-- `src/framework/package/*`: Paket-Entrypoints fuer Runtime, SSR und Vite-Plugin
-- `scripts/build-package.mjs`: JS-Build fuer die veroeffentlichbaren Paketartefakte
-- `tsconfig.package.json`: Declaration-Build fuer die Paket-Typen
-- `src/demo/App.tsx`: Demo-App mit Router, Store und Todo-Workspace
-- `src/demo/pages/*`: aufgeteilte Demo-Seiten
-- `src/demo/components/*`: wiederverwendete Demo-Bausteine
-- `docs/M2-DESIGN.md`: Architektur und naechste Schritte Richtung Hydration/SSR
+- `src/framework/compiler/plugin.ts`: AST transform for components, `let`, helper analysis, and JSX slots
+- `src/framework/compiler/metrics.ts`: compiler metrics for transform output
+- `src/framework/runtime/index.ts`: public runtime API and DOM entry points
+- `src/framework/runtime/*`: split runtime for core, DOM, patching, slots, router, and hydration
+- `src/framework/server/index.ts`: public SSR API
+- `src/framework/server/*`: split server renderer and SSR router
+- `src/framework/package/*`: package entry points for runtime, SSR, and Vite plugin
+- `scripts/build-package.mjs`: JS build for publishable package artifacts
+- `tsconfig.package.json`: declaration build for package types
+- `src/demo/App.tsx`: demo app with router, store, and todo workspace
+- `src/demo/pages/*`: split demo pages
+- `src/demo/components/*`: reusable demo building blocks
+- `docs/M2-DESIGN.md`: architecture and next steps toward hydration and SSR

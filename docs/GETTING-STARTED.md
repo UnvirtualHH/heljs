@@ -1,34 +1,34 @@
 # Getting Started
 
-`Hel` ist aktuell ein compiler-first Framework-Prototyp mit:
+`Hel` is currently a compiler-first framework prototype with:
 
-- lokalem `let`-State
-- direktem DOM statt Virtual DOM
-- kleinem HTML-first Router
-- SSR + Hydration
-- Vite-Plugin fuer den AST-Transform
+- local `let` state
+- direct DOM instead of a virtual DOM
+- a small HTML-first router
+- SSR and hydration
+- a Vite plugin for the AST transform
 
-Der schnellste Einstieg ist erst lokal gegen das Paket zu arbeiten und nicht direkt gegen interne Source-Dateien.
+The fastest way to get started is to work against the built package first instead of importing internal source files directly.
 
-## Voraussetzungen
+## Prerequisites
 
 - Node.js 22
 - npm
 
-## 1. Hel im Framework-Repo bauen
+## 1. Build Hel in the framework repo
 
-Im Hel-Repo:
+Inside the Hel repo:
 
 ```bash
 npm install
 npm run build:package
 ```
 
-Das erzeugt die konsumierbaren Paketartefakte unter `dist/package`.
+That generates the consumable package artifacts under `dist/package`.
 
-## 2. Neues Client-Projekt anlegen
+## 2. Create a new client project
 
-Minimaler `package.json`-Ausschnitt:
+Minimal `package.json` excerpt:
 
 ```json
 {
@@ -44,7 +44,7 @@ Minimaler `package.json`-Ausschnitt:
 }
 ```
 
-## 3. Vite einrichten
+## 3. Configure Vite
 
 `vite.config.ts`:
 
@@ -57,7 +57,7 @@ export default defineConfig({
 });
 ```
 
-## 4. Eine erste Komponente schreiben
+## 4. Write a first component
 
 `src/main.tsx`:
 
@@ -78,20 +78,20 @@ function App() {
 mount(<App />, document.getElementById("app")!);
 ```
 
-Wichtig:
+Important:
 
-- Komponenten muessen PascalCase haben
-- lokaler reaktiver State ist `let`
-- normale `const`-Helper sind okay
-- kein `signal()`, `effect()` oder `memo()` im User-Code
+- components must use PascalCase names
+- local reactive state is `let`
+- normal `const` helpers are fine
+- there is no `signal()`, `effect()`, or `memo()` in user code
 
-## 5. Dev-Server starten
+## 5. Start the dev server
 
 ```bash
 npm run dev
 ```
 
-## Router-Minimum
+## Minimal Router Example
 
 ```tsx
 import { createRouter, h, mount } from "hel/runtime";
@@ -114,41 +114,41 @@ function App() {
 }
 ```
 
-Normale `<a href>`-Tags sind der Standard. Der Router interceptet nur interne bekannte Routen.
+Normal `<a href>` tags are the default. The router only intercepts known internal routes.
 
-## SSR-Minimum
+## Minimal SSR Example
 
-Fuer SSR gibt es im Repo bereits ein funktionierendes Beispiel:
+A working SSR example already exists in the repo:
 
 - [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
 
-Wichtiger Punkt fuer externe SSR-Projekte:
+Important for external SSR projects:
 
-- Client-Code importiert aus `hel/runtime`
-- der SSR-Build muss `hel/runtime` auf `hel/server` aliasen
+- client code imports from `hel/runtime`
+- the SSR build must alias `hel/runtime` to `hel/server`
 
-Das ist im Beispiel in [starter-ssr/vite.config.ts](C:/projects/hellscript/codex%20version/starter-ssr/vite.config.ts) bereits umgesetzt.
+That is already implemented in [starter-ssr/vite.config.ts](C:/projects/hellscript/codex%20version/starter-ssr/vite.config.ts).
 
-## Verifizierte Beispiele im Repo
+## Verified Examples in the Repo
 
-- Client-only Starter:
+- Client-only starter:
   - [starter](C:/projects/hellscript/codex%20version/starter)
-- SSR-Starter:
+- SSR starter:
   - [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
-- groessere Demo-App:
+- Larger demo app:
   - [src/demo](C:/projects/hellscript/codex%20version/src/demo)
 
-## Bekannte Grenzen
+## Known Limits
 
-- `let`-Destructuring fuer reaktiven State ist noch nicht implementiert
-- Komponenten-Parameter muessen aktuell ein einfacher Identifier sein
-- `list(...)` ist die offizielle keyed Listen-Story
-- `store(...)` ist bewusst lokal und grob-granular
-- der Router ist absichtlich klein: keine nested routes, guards oder loader/actions
+- reactive `let` destructuring is not implemented yet
+- component parameters currently must be a simple identifier
+- `list(...)` is the official keyed list story
+- `store(...)` is intentionally local and coarse-grained
+- the router is intentionally small: no nested routes, guards, or loader or action APIs
 
-## Sinnvolle naechste Dokumente
+## Useful Next Documents
 
-- Architektur:
+- Architecture:
   - [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
-- Release-/Publish-Guide:
+- Release and publish guide:
   - [RELEASING.md](C:/projects/hellscript/codex%20version/docs/RELEASING.md)

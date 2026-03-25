@@ -1,34 +1,34 @@
 # Releasing Hel
 
-Der Release-Pfad ist jetzt so aufgebaut, dass ein npm-Release nicht mehr auf manuelle Einzelbefehle angewiesen ist.
+The release path is now set up so that an npm release is no longer a collection of manual one-off commands.
 
-## Voraussetzungen
+## Prerequisites
 
-- npm-Paketname und Version sind in [package.json](C:/projects/hellscript/codex%20version/package.json) korrekt
-- `NPM_TOKEN` ist als GitHub Actions Secret gesetzt
-- der Arbeitsbaum ist sauber
+- the npm package name and version in [package.json](C:/projects/hellscript/codex%20version/package.json) are correct
+- `NPM_TOKEN` is configured as a GitHub Actions secret
+- the working tree is clean
 
-## Lokaler Release-Check
+## Local Release Check
 
-Vor jedem Tag:
+Before every tag:
 
 ```bash
 npm install
 npm run release:check
 ```
 
-Das macht:
+That runs:
 
 1. `typecheck`
 2. `test`
-3. normalen App-/SSR-Build
-4. Paket-Build
-5. externe Consumer-Verifikation:
+3. the normal app and SSR build
+4. the package build
+5. external consumer verification:
    - [starter](C:/projects/hellscript/codex%20version/starter)
    - [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
 6. `npm pack --dry-run`
 
-Wenn du nur die Consumer gegen ein bereits gebautes Paket pruefen willst:
+If you only want to validate the consumers against an already built package:
 
 ```bash
 npm run verify:starters
@@ -36,7 +36,7 @@ npm run verify:starters
 
 ## GitHub Actions
 
-Es gibt zwei relevante Workflows:
+There are two relevant workflows:
 
 - CI:
   - [ci.yml](C:/projects/hellscript/codex%20version/.github/workflows/ci.yml)
@@ -45,7 +45,7 @@ Es gibt zwei relevante Workflows:
 
 ### CI
 
-CI prueft auf Push/PR:
+CI verifies on push and pull request:
 
 - `npm ci`
 - `npm run typecheck`
@@ -56,54 +56,54 @@ CI prueft auf Push/PR:
 
 ### Release
 
-Der Release-Workflow laeuft bei:
+The release workflow runs on:
 
-- Tag-Push `v*`
+- tag pushes matching `v*`
 - `workflow_dispatch`
 
 `verify-and-pack`:
 
-- installiert Dependencies
-- fuehrt `npm run release:check` aus
-- packt ein `.tgz`-Artefakt
-- laedt dieses als Workflow-Artefakt hoch
+- installs dependencies
+- runs `npm run release:check`
+- packs a `.tgz` artifact
+- uploads that artifact to the workflow
 
 `publish-npm`:
 
-- laeuft nur auf Tag-Pushes
-- laedt das gepackte Artefakt herunter
-- published mit:
+- only runs on tag pushes
+- downloads the packed artifact
+- publishes with:
 
 ```bash
 npm publish artifacts/*.tgz --access public --provenance
 ```
 
-## Empfohlener Release-Ablauf
+## Recommended Release Flow
 
-1. Version in [package.json](C:/projects/hellscript/codex%20version/package.json) anheben
-2. lokal `npm run release:check`
-3. committen
-4. Tag setzen, z. B.:
+1. bump the version in [package.json](C:/projects/hellscript/codex%20version/package.json)
+2. run `npm run release:check` locally
+3. commit the change
+4. create a tag, for example:
 
 ```bash
 git tag v0.1.1
 git push origin main --tags
 ```
 
-5. Release-Workflow beobachten
+5. watch the release workflow
 
-## Bewusste Entscheidungen
+## Intentional Decisions
 
 - ESM-only
-- npm-Publish ueber gepacktes Artefakt statt neuem Build im Publish-Job
-- Consumer-Pruefung ist Teil des Release-Gates
-- SSR-Consumer bleibt explizit im Gate, weil genau dort Packaging-/Aliasfehler am ehesten auffallen
+- npm publish happens from the packed artifact instead of rebuilding inside the publish job
+- consumer verification is part of the release gate
+- the SSR consumer remains explicitly in the gate because packaging and alias mistakes are most likely to show up there
 
-## Noch nicht Teil des Release-Prozesses
+## Not Yet Part of the Release Process
 
-- automatisches Changelog
-- GitHub Release Notes
-- Changesets/Semver-Automation
-- CJS-Output
+- automatic changelog generation
+- GitHub release notes
+- changesets or semver automation
+- CJS output
 
-Wenn diese Punkte kommen, sollten sie auf dem bestehenden `release:check` aufbauen statt eine zweite parallele Pipeline einzufuehren.
+If those arrive later, they should build on the existing `release:check` instead of creating a second parallel release pipeline.

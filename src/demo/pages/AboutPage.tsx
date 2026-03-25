@@ -18,7 +18,7 @@ export function AboutPage() {
           <article class="insight-card feature-card">
             <strong>Not in the first core</strong>
             <p>
-              Deep data orchestration, complex nested routing, loaders, guards and cache layers can sit on
+              Deep data orchestration, complex nested routing, loaders, guards, and cache layers can sit on
               top once the base is stable.
             </p>
           </article>

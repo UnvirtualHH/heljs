@@ -46,7 +46,7 @@ export function OverviewPage(props: OverviewPageProps) {
             Open todo workspace
           </a>
           <a class="secondary-link" href="/about">
-            Read the Hel constraints
+            Read the core boundaries
           </a>
         </div>
       </section>
