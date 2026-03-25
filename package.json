@@ -1,8 +1,11 @@
 {
   "name": "hel",
-  "private": true,
+  "private": false,
   "version": "0.1.0",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/package/runtime.js",
   "types": "./dist/package/package/runtime.d.ts",
   "files": [
@@ -37,6 +40,9 @@
     "build:package": "npm run build:package:js && npm run build:package:types",
     "verify:starters": "npm --prefix starter install && npm --prefix starter run typecheck && npm --prefix starter run build && npm --prefix starter-ssr install && npm --prefix starter-ssr run typecheck && npm --prefix starter-ssr run build",
     "verify:package": "node scripts/build-package.mjs && tsc -p tsconfig.package.json && npm run verify:starters",
+    "pack:dry-run": "npm pack --dry-run",
+    "pack:artifact": "npm pack --pack-destination artifacts",
+    "release:check": "npm run typecheck && npm test && npm run build && npm run verify:package && npm run pack:dry-run",
     "prerender": "node scripts/prerender.mjs",
     "build": "npm run build:client && npm run build:server && npm run prerender",
     "bench": "vitest bench --run",

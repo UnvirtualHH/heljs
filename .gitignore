@@ -12,6 +12,7 @@ coverage/
 .vitest/
 bench-results.json
 bench-runtime-results.json
+artifacts/
 
 # Logs
 npm-debug.log*

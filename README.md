@@ -14,6 +14,12 @@ Ziel ist Solid-artige Fine-Grained-Reaktivitaet, aber mit normalem TypeScript im
 
 Der aktuelle Stand ist ein brauchbarer M2-Prototyp mit Client-Rendering, SSR-HTML-Output und Hydration-MVP.
 
+Weiterfuehrende Doku:
+
+- Einstieg: [GETTING-STARTED.md](C:/projects/hellscript/codex%20version/docs/GETTING-STARTED.md)
+- Release-/Publish-Ablauf: [RELEASING.md](C:/projects/hellscript/codex%20version/docs/RELEASING.md)
+- Architektur: [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
+
 ## Projektstruktur
 
 Die aktive Struktur ist jetzt fachlich getrennt:
@@ -59,6 +65,7 @@ Build pruefen:
 npm run typecheck
 npm run build
 npm run build:package
+npm run release:check
 npm run bench
 npm run bench:runtime
 ```

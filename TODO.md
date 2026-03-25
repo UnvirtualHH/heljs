@@ -128,8 +128,8 @@ Ziel: Das Framework darf nicht mehr nur manuell verifiziert werden.
 
 ### Gate fuer Phase 2
 
-- [ ] Kernpfade automatisiert getestet
-- [ ] CI laeuft auf jedem Commit gruen
+- [x] Kernpfade automatisiert getestet
+- [x] CI laeuft auf jedem Commit gruen
 - [ ] Regressionsfaelle lassen sich ueber Tests reproduzieren
 
 ## Phase 3: Performance-Foundation
@@ -303,14 +303,14 @@ Ziel: Das Ding muss veroeffentlichbar und konsumierbar sein.
 
 ### Release-Engineering
 
-- [ ] CI/CD fuer Releases
-- [ ] automatisierte Paketpruefung vor Publish
+- [x] CI/CD fuer Releases
+- [x] automatisierte Paketpruefung vor Publish
 - [ ] Semver-Regeln festlegen
 
 ### Gate fuer Phase 6
 
 - [x] Framework kann als Paket installiert und in neuem Projekt genutzt werden
-- [ ] Release-Prozess ist reproduzierbar
+- [x] Release-Prozess ist reproduzierbar
 - [ ] Support-Matrix ist dokumentiert
 
 ## Phase 7: Production Readiness
@@ -325,7 +325,7 @@ Ziel: Nicht nur "funktioniert bei mir", sondern belastbar unter Fremdnutzung.
 
 ### Dokumentation
 
-- [ ] Getting Started
+- [x] Getting Started
 - [ ] API-Referenz
 - [ ] SSR/Hydration-Guide
 - [ ] Reaktivitaetsmodell
