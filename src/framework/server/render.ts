@@ -7,9 +7,10 @@ import {
   isNodeFactory,
   isTemplateFactory,
   isTextBinding,
+  runWithContext,
   type Cell,
 } from "./core";
-import { BLOCK_END, BLOCK_START } from "../shared";
+import { BLOCK_END, BLOCK_START, CONTEXT_PROVIDER } from "../shared";
 
 const VOID_TAGS = new Set([
   "area",
@@ -56,6 +57,30 @@ export type Renderable =
   | Renderable[]
   | ServerElement
   | ServerFragment;
+
+function isContextProvider(tag: unknown): tag is ((props: any) => unknown) & { [CONTEXT_PROVIDER]: import("../shared").ContextDefinition<unknown> } {
+  return Boolean(tag && typeof tag === "function" && (tag as unknown as Record<PropertyKey, unknown>)[CONTEXT_PROVIDER]);
+}
+
+function renderContextChildren(children: Renderable[]): Renderable {
+  if (children.length === 0) {
+    return null;
+  }
+
+  return frag(...children.map(resolveContextChild));
+}
+
+function resolveContextChild(value: Renderable): Renderable {
+  if (isNodeFactory(value)) {
+    return resolveContextChild(value.read() as Renderable);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => resolveContextChild(entry as Renderable));
+  }
+
+  return value;
+}
 
 function isServerElement(value: unknown): value is ServerElement {
   return typeof value === "object" && value !== null && (value as { type?: unknown }).type === "element";
@@ -219,6 +244,11 @@ export function h(
   ...children: any[]
 ): Renderable {
   if (typeof tag === "function") {
+    if (isContextProvider(tag)) {
+      const context = tag[CONTEXT_PROVIDER];
+      return runWithContext(context, props?.value, () => renderContextChildren(children as Renderable[]));
+    }
+
     return tag({ ...(props ?? {}), children }) as Renderable;
   }
 

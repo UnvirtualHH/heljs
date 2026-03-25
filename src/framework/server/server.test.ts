@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { branch, createRouter, dynBlock, For, h, list, node, renderToString, Show } from "./index";
+import { branch, createContext, createRouter, dynBlock, For, h, list, node, renderToString, Show, useContext } from "./index";
 
 describe("server renderer", () => {
   it("renders block markers for dynamic regions", () => {
@@ -88,6 +88,25 @@ describe("server renderer", () => {
     expect(html).toContain("<li>Alpha</li>");
     expect(html).toContain("<li>Beta</li>");
     expect(html).not.toContain("fallback");
+  });
+
+  it("renders context-backed descendants on the server", () => {
+    const AuthContext = createContext({ role: "guest" });
+
+    function RoleBadge() {
+      const auth = useContext(AuthContext);
+      return h("p", null, auth.role);
+    }
+
+    const html = renderToString(() =>
+      h(
+        AuthContext.Provider,
+        { value: { role: "member" } },
+        node(() => h(RoleBadge, null)),
+      ),
+    );
+
+    expect(html).toContain("<p>member</p>");
   });
 
   it("renders For fallback when the list is empty", () => {

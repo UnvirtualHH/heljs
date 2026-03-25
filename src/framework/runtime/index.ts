@@ -3,6 +3,7 @@ import {
   branch,
   cell,
   component,
+  createContext,
   createScope,
   disposeScope,
   dyn,
@@ -33,13 +34,16 @@ import {
   type Cell,
   type RuntimeStats,
   type Scope,
+  useContext,
   untrack,
+  runWithContext,
 } from "./core";
 export {
   attr,
   branch,
   cell,
   component,
+  createContext,
   dyn,
   dynAttr,
   dynBlock,
@@ -56,10 +60,12 @@ export {
   store,
   text,
   tpl,
+  useContext,
 } from "./core";
 export type { Cell, RuntimeStats } from "./core";
 import {
   ATTR_BINDING,
+  CONTEXT_PROVIDER,
   COMPONENT_REACTIVE_PROPS,
   LIST,
   NODE_FACTORY,
@@ -72,6 +78,7 @@ import {
   type TemplateFactory,
   type TextBinding,
 } from "../shared";
+export type { ContextDefinition } from "../shared";
 import {
   BLOCK_END,
   BLOCK_START,
@@ -160,6 +167,18 @@ function createComponentPropsView(
   return view;
 }
 
+function isContextProvider(tag: unknown): tag is ((props: any) => unknown) & { [CONTEXT_PROVIDER]: import("../shared").ContextDefinition<unknown> } {
+  return Boolean(tag && typeof tag === "function" && (tag as unknown as Record<PropertyKey, unknown>)[CONTEXT_PROVIDER]);
+}
+
+function renderContextChildren(children: unknown[]): unknown {
+  if (children.length === 0) {
+    return null;
+  }
+
+  return frag(...children);
+}
+
 function supportsReactiveComponentProps(tag: unknown): boolean {
   return Boolean(
     tag &&
@@ -174,6 +193,21 @@ export function h(
   ...children: unknown[]
 ): unknown {
   if (typeof tag === "function") {
+    if (isContextProvider(tag)) {
+      const context = tag[CONTEXT_PROVIDER];
+      const renderProvider = () => {
+        const resolvedProps = resolveComponentProps(props, children);
+        const providerValue = resolvedProps.value;
+        return runWithContext(context, providerValue, () => renderContextChildren(children));
+      };
+
+      if (hasReactiveComponentProps(props)) {
+        return dynBlock(renderProvider);
+      }
+
+      return renderProvider();
+    }
+
     if (hasReactiveComponentProps(props) && supportsReactiveComponentProps(tag)) {
       return tag(createComponentPropsView(props, children));
     }

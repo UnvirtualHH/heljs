@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { attr, branch, cell, createRouter, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, store, text, tpl } from "./index";
+import { attr, branch, cell, createContext, createRouter, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, store, text, tpl, useContext } from "./index";
 import {
   branch as serverBranch,
   createRouter as createServerRouter,
@@ -204,6 +204,76 @@ describe("runtime", () => {
     await flushMicrotask();
 
     expect(root.textContent).toBe("empty");
+  });
+
+  it("reads default context values when no provider is present", () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const AuthContext = createContext({ role: "guest" });
+
+    function RoleBadge() {
+      const auth = useContext(AuthContext);
+      return h("p", null, auth.role);
+    }
+
+    mount(() => h("section", null, node(() => h(RoleBadge, null))), root);
+
+    expect(root.textContent).toBe("guest");
+  });
+
+  it("provides context values to descendant components", () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const AuthContext = createContext({ role: "guest" });
+
+    function RoleBadge() {
+      const auth = useContext(AuthContext);
+      return h("p", null, auth.role);
+    }
+
+    mount(
+      () =>
+        h(
+          AuthContext.Provider,
+          { value: { role: "member" } },
+          node(() => h(RoleBadge, null)),
+        ),
+      root,
+    );
+
+    expect(root.textContent).toBe("member");
+  });
+
+  it("rerenders provider subtrees when the context value changes", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const AuthContext = createContext({ role: "guest" });
+    const role = cell("guest");
+
+    function RoleBadge() {
+      const auth = useContext(AuthContext);
+      return h("p", null, auth.role);
+    }
+
+    mount(
+      () =>
+        h(
+          AuthContext.Provider,
+          { value: dynAttr(() => ({ role: get(role) })) },
+          node(() => h(RoleBadge, null)),
+        ),
+      root,
+    );
+
+    expect(root.textContent).toBe("guest");
+
+    set(role, "admin");
+    await flushMicrotask();
+
+    expect(root.textContent).toBe("admin");
   });
 
   it("renders For fallback for empty lists and swaps to list items later", async () => {

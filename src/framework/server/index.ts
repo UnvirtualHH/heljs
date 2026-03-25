@@ -4,6 +4,7 @@ import {
   branch,
   cell,
   component,
+  createContext,
   dyn,
   dynAttr,
   dynBlock,
@@ -19,12 +20,15 @@ import {
   text,
   tpl,
   type Cell,
+  useContext,
+  runWithContext,
 } from "./core";
 export {
   attr,
   branch,
   cell,
   component,
+  createContext,
   dyn,
   dynAttr,
   dynBlock,
@@ -39,11 +43,13 @@ export {
   store,
   text,
   tpl,
+  useContext,
 } from "./core";
 export type { Cell } from "./core";
 import { frag, h, renderToString, type Renderable } from "./render";
 export { frag, h, renderToString } from "./render";
 import type { RouteDefinition, RouterOptions } from "../shared";
+export type { ContextDefinition } from "../shared";
 
 export type Router = StaticRouter;
 

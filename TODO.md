@@ -176,7 +176,7 @@ Goal: not Solid-level, but clearly better than a naive DOM approach.
 - [ ] Define a comparison baseline
   - [x] Vue
   - [x] React
-  - [ ] Solid
+  - [x] Solid
   - [x] naive DOM variant
 - [ ] Define a performance budget
   - initial render
@@ -258,6 +258,10 @@ Goal: move from "cool prototype" to "something you can build with".
 - [ ] Decide on stores and deep object reactivity
   - [x] minimal proxy store for local object and array mutations
   - [ ] deliberately decide whether fine-grained store semantics are needed
+- [x] Add a minimal context API
+  - `createContext`
+  - `useContext`
+  - provider-based subtree sharing
 - [ ] Optionally evaluate internal `memo` or derived caching
 - [ ] Define the async and resource story
   - intentionally not part of core

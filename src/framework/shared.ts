@@ -10,6 +10,7 @@ export const TEXT_BINDING = Symbol("hel.text-binding");
 export const ATTR_BINDING = Symbol("hel.attr-binding");
 export const TEMPLATE_FACTORY = Symbol("hel.template-factory");
 export const COMPONENT_REACTIVE_PROPS = Symbol("hel.component-reactive-props");
+export const CONTEXT_PROVIDER = Symbol("hel.context-provider");
 
 export type NodeFactory<T = unknown> = {
   [NODE_FACTORY]: true;
@@ -63,6 +64,14 @@ export type ShowProps = {
   when: unknown;
   fallback?: unknown;
   children?: unknown[];
+};
+
+export type ContextDefinition<T> = {
+  id: symbol;
+  defaultValue: T;
+  Provider: ((props: { value: T; children?: unknown[] }) => unknown) & {
+    [CONTEXT_PROVIDER]: ContextDefinition<T>;
+  };
 };
 
 export type RouteDefinition = {

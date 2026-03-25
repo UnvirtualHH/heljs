@@ -510,6 +510,32 @@ Intentionally not included yet:
 - guards
 - loaders or actions
 
+### 10. Minimal context
+
+Hel now has a small context API for shared subtree state.
+
+```tsx
+import { createContext, useContext } from "hel/runtime";
+
+const AuthContext = createContext({ role: "guest" });
+
+function RoleBadge() {
+  const auth = useContext(AuthContext);
+  return <strong>{auth.role}</strong>;
+}
+
+<AuthContext.Provider value={{ role: "admin" }}>
+  <RoleBadge />
+</AuthContext.Provider>
+```
+
+Current context semantics:
+
+- works on client and server
+- rerenders the provider subtree when the provider value changes
+- good fit for auth, theme, and app-shell state
+- intentionally small, not a full dependency-injection layer
+
 ## What Internally Becomes What
 
 The user-facing API is intentionally magical. Internally it still lands on a small runtime.

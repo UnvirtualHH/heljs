@@ -1,6 +1,8 @@
 import {
   ATTR_BINDING,
   BRANCH,
+  CONTEXT_PROVIDER,
+  type ContextDefinition,
   type BranchBinding,
   COMPONENT_REACTIVE_PROPS,
   DYNAMIC,
@@ -30,6 +32,11 @@ export interface Cell<T> {
   subscribers: Set<never>;
 }
 
+let activeContextFrame: {
+  parent: typeof activeContextFrame | null;
+  values: Map<symbol, unknown>;
+} | null = null;
+
 export function cell<T>(value: T): Cell<T> {
   return {
     value,
@@ -53,6 +60,74 @@ export function set<T>(slot: Cell<T>, next: T): T {
 export function effect(fn: () => void): () => void {
   fn();
   return () => undefined;
+}
+
+function unwrapContextValue<T>(value: T): T {
+  if (isDynamic(value)) {
+    return value.read() as T;
+  }
+
+  if (isTextBinding(value)) {
+    return get(value.cell as Cell<any>) as T;
+  }
+
+  if (isAttrBinding(value)) {
+    return get(value.cell as Cell<any>) as T;
+  }
+
+  if (isNodeFactory(value)) {
+    return value.read() as T;
+  }
+
+  if (isTemplateFactory(value)) {
+    return value.read() as T;
+  }
+
+  return value;
+}
+
+export function runWithContext<T, R>(context: ContextDefinition<T>, value: T, fn: () => R): R {
+  const frame = {
+    parent: activeContextFrame,
+    values: new Map<symbol, unknown>([[context.id, value]]),
+  };
+  activeContextFrame = frame;
+
+  try {
+    return fn();
+  } finally {
+    activeContextFrame = frame.parent;
+  }
+}
+
+export function createContext<T>(defaultValue: T): ContextDefinition<T> {
+  const context = {
+    id: Symbol("hel.context"),
+    defaultValue,
+  } as ContextDefinition<T>;
+
+  const Provider = ((props: { value: T; children?: unknown[] }) => props.children ?? null) as ContextDefinition<T>["Provider"];
+  Object.defineProperty(Provider, CONTEXT_PROVIDER, {
+    value: context,
+    enumerable: false,
+    configurable: false,
+  });
+
+  context.Provider = Provider;
+  return context;
+}
+
+export function useContext<T>(context: ContextDefinition<T>): T {
+  let frame = activeContextFrame;
+
+  while (frame) {
+    if (frame.values.has(context.id)) {
+      return unwrapContextValue(frame.values.get(context.id) as T);
+    }
+    frame = frame.parent;
+  }
+
+  return context.defaultValue;
 }
 
 export function node<T>(read: () => T): NodeFactory<T> {

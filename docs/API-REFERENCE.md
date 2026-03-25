@@ -74,6 +74,40 @@ These exist because the runtime is built on them, but normal app code is expecte
 - helper functions
 - JSX
 
+### Context
+
+#### `createContext(defaultValue)`
+
+Creates a minimal shared context with a provider component.
+
+```ts
+const AuthContext = createContext({ role: "guest" });
+```
+
+#### `useContext(context)`
+
+Reads the nearest context value from the current provider subtree.
+
+```ts
+const auth = useContext(AuthContext);
+```
+
+#### `Context.Provider`
+
+Provides a context value to descendant JSX children.
+
+```tsx
+<AuthContext.Provider value={{ role: "admin" }}>
+  <RoleBadge />
+</AuthContext.Provider>
+```
+
+Current semantics:
+
+- works on client and server
+- rerenders the provider subtree when the provider value changes
+- falls back to the default value when no provider is present
+
 ### Lists and Control Flow
 
 #### `list(read, key, render)`
