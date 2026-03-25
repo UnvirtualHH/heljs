@@ -51,20 +51,23 @@ The current benchmark snapshot in the repo reports approximately:
 - naive DOM: `23767 hz`
 - Vue: `10320 hz`
 - React: `6159 hz`
+- Solid: `32631 hz`
 
 ### Table update
 
 - Hel: `273.5 hz`
-- naive DOM: `242.0 hz`
-- Vue: `245.7 hz`
-- React: `138.2 hz`
+- naive DOM: `260.3 hz`
+- Vue: `151.8 hz`
+- React: `44.8 hz`
+- Solid: `78.6 hz`
 
 ### List toggle update
 
-- Hel: `1177.0 hz`
-- naive DOM: `1233.9 hz`
-- Vue: `845.7 hz`
-- React: `403.4 hz`
+- Hel: `402.4 hz`
+- naive DOM: `501.1 hz`
+- Vue: `308.8 hz`
+- React: `134.8 hz`
+- Solid: `518.1 hz`
 
 Interpretation:
 
@@ -98,7 +101,7 @@ This path improved once keyed list placement and in-place patching stopped doing
 
 This used to be a weak point because broad `dynBlock(...)` behavior was too expensive for branch flips.
 
-The major improvement came from:
+The major improvement in Hel came from:
 
 - branch retention for expensive marker-based branches
 - specialized branch slots instead of generic block handling for conditionals
@@ -166,7 +169,7 @@ Still open:
 - closure allocation reduction in compiled output
 - broader benchmark coverage
 - memory and hydration budgets
-- a reliable Solid baseline in a compatible harness
+- a second non-happy-dom benchmark harness if we want browser-level validation
 
 ## How to Benchmark
 
@@ -199,6 +202,7 @@ It:
 - runs outside Vitest Bench
 - uses fixed iterations
 - runs multiple rounds
+- runs with the Node `browser` condition so Solid resolves to its client renderer
 - writes results to `bench-runtime-results.json`
 
 ## How to Read the Numbers

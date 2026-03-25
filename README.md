@@ -83,9 +83,9 @@ npm run bench:runtime
 
 In the dev server (`npm run dev`) the app mounts normally without handwritten demo HTML. In the build output, real prerendered markup is generated and then hydrated by the client.
 
-`npm run bench` runs the current micro-benchmark harness through Vitest Bench for counter, table, and list paths, including local comparisons against naive direct DOM updates, Vue, and React. A reliable Solid baseline is still open in the current Vitest and happy-dom setup.
+`npm run bench` runs the current micro-benchmark harness through Vitest Bench for counter, table, and list paths, including local comparisons against naive direct DOM updates, Vue, and React. Solid is intentionally benchmarked through the runtime harness instead, because the direct Node + browser-condition setup is more reliable than the current Vitest path for Solid's client renderer.
 
-`npm run bench:runtime` is the more robust runtime comparison outside Vitest. It uses fixed iterations and multiple rounds per scenario and writes results to `bench-runtime-results.json`.
+`npm run bench:runtime` is the more robust runtime comparison outside Vitest. It uses fixed iterations and multiple rounds per scenario, runs the process with the `browser` condition for Solid, and writes results to `bench-runtime-results.json`.
 
 ## Using Hel as a Package
 

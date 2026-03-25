@@ -50,6 +50,9 @@ const { createApp, h: vueH, nextTick, ref: vueRef } = await import("vue");
 const { createElement: reactCreateElement } = await import("react");
 const { createRoot: createReactRoot } = await import("react-dom/client");
 const { flushSync } = await import("react-dom");
+const { createSignal: createSolidSignal } = await import("solid-js");
+const { render: renderSolid } = await import("solid-js/web");
+const { default: solidH } = await import("solid-js/h");
 
 function createRoot(): HTMLDivElement {
   const root = document.createElement("div");
@@ -317,6 +320,90 @@ function mountReactListToggle(root: Element) {
   };
 }
 
+function mountSolidCounter(root: Element) {
+  const [count, setCount] = createSolidSignal(0);
+  const dispose = renderSolid(() => solidH("section", null, solidH("h1", null, "Count"), solidH("p", null, count), solidH("button", null, "+")), root);
+
+  return {
+    setCount(next: number) {
+      setCount(next);
+    },
+    unmount() {
+      dispose();
+    },
+  };
+}
+
+function mountSolidTable(root: Element) {
+  const [rows, setRows] = createSolidSignal(
+    Array.from({ length: 100 }, (_, index) => ({
+      id: `row-${index}`,
+      label: `Row ${index}`,
+      value: index,
+    })),
+  );
+
+  const dispose = renderSolid(
+    () =>
+      solidH(
+        "table",
+        null,
+        solidH(
+          "tbody",
+          null,
+          () =>
+            rows().map((row) =>
+              solidH("tr", null, solidH("td", null, row.label), solidH("td", null, () => String(row.value))),
+            ),
+        ),
+      ),
+    root,
+  );
+
+  return {
+    updateRows() {
+      setRows((current) => current.map((row, index) => (index % 10 === 0 ? { ...row, value: row.value + 1 } : row)));
+    },
+    unmount() {
+      dispose();
+    },
+  };
+}
+
+function mountSolidListToggle(root: Element) {
+  const [visible, setVisible] = createSolidSignal(true);
+  const items = Array.from({ length: 50 }, (_, index) => ({ id: index, label: `Item ${index}` }));
+
+  const dispose = renderSolid(
+    () =>
+      solidH(
+        "section",
+        null,
+        () =>
+          visible()
+            ? solidH(
+                "ul",
+                null,
+                items.map((item) => solidH("li", null, item.label)),
+              )
+            : solidH("p", null, "hidden"),
+      ),
+    root,
+  );
+
+  return {
+    hide() {
+      setVisible(false);
+    },
+    show() {
+      setVisible(true);
+    },
+    unmount() {
+      dispose();
+    },
+  };
+}
+
 function createCases(): BenchCase[] {
   return [
     {
@@ -370,6 +457,20 @@ function createCases(): BenchCase[] {
         resetDom();
         const root = createRoot();
         const app = mountReactCounter(root);
+        app.setCount(1);
+        app.unmount();
+        destroyRoot(root);
+      },
+    },
+    {
+      name: "solid counter update",
+      iterations: 1000,
+      warmups: 50,
+      rounds: 5,
+      run() {
+        resetDom();
+        const root = createRoot();
+        const app = mountSolidCounter(root);
         app.setCount(1);
         app.unmount();
         destroyRoot(root);
@@ -461,6 +562,20 @@ function createCases(): BenchCase[] {
       },
     },
     {
+      name: "solid table update",
+      iterations: 120,
+      warmups: 10,
+      rounds: 5,
+      run() {
+        resetDom();
+        const root = createRoot();
+        const app = mountSolidTable(root);
+        app.updateRows();
+        app.unmount();
+        destroyRoot(root);
+      },
+    },
+    {
       name: "hel list toggle update",
       iterations: 200,
       warmups: 15,
@@ -540,6 +655,21 @@ function createCases(): BenchCase[] {
         resetDom();
         const root = createRoot();
         const app = mountReactListToggle(root);
+        app.hide();
+        app.show();
+        app.unmount();
+        destroyRoot(root);
+      },
+    },
+    {
+      name: "solid list toggle update",
+      iterations: 200,
+      warmups: 15,
+      rounds: 5,
+      run() {
+        resetDom();
+        const root = createRoot();
+        const app = mountSolidListToggle(root);
         app.hide();
         app.show();
         app.unmount();

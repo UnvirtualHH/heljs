@@ -46,7 +46,7 @@
     "prerender": "node scripts/prerender.mjs",
     "build": "npm run build:client && npm run build:server && npm run prerender",
     "bench": "vitest bench --run",
-    "bench:runtime": "tsx scripts/bench-runtime.ts",
+    "bench:runtime": "node --conditions=browser --import tsx scripts/bench-runtime.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
