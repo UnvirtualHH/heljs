@@ -29,8 +29,6 @@ Die aktive Struktur ist jetzt fachlich getrennt:
 - [src/framework/package](C:/projects/hellscript/codex%20version/src/framework/package)
   - Paket-Entrypoints fuer externe Projekte
 
-Die flachen Dateien direkt unter `src/framework` sind nur noch Legacy-Facades fuer Kompatibilitaet. Die aktive Implementierung lebt ausschliesslich in den Unterordnern oben.
-
 Aktive Einstiegspunkte im Framework-Code sind:
 
 - [src/framework/compiler/plugin.ts](C:/projects/hellscript/codex%20version/src/framework/compiler/plugin.ts)
@@ -40,7 +38,11 @@ Aktive Einstiegspunkte im Framework-Code sind:
 - [src/framework/package/server.ts](C:/projects/hellscript/codex%20version/src/framework/package/server.ts)
 - [src/framework/package/vite.ts](C:/projects/hellscript/codex%20version/src/framework/package/vite.ts)
 
-Nur [shared.ts](C:/projects/hellscript/codex%20version/src/framework/shared.ts) und [react-bench-modules.d.ts](C:/projects/hellscript/codex%20version/src/framework/react-bench-modules.d.ts) bleiben bewusst flach, weil sie moduluebergreifend gebraucht werden.
+Flach im `src/framework`-Root bleiben bewusst nur noch:
+
+- [shared.ts](C:/projects/hellscript/codex%20version/src/framework/shared.ts)
+- [jsx.d.ts](C:/projects/hellscript/codex%20version/src/framework/jsx.d.ts)
+- [react-bench-modules.d.ts](C:/projects/hellscript/codex%20version/src/framework/react-bench-modules.d.ts)
 
 ## Starten
 

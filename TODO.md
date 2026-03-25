@@ -122,10 +122,9 @@ Ziel: Das Framework darf nicht mehr nur manuell verifiziert werden.
   - `runtime/`
   - `server/`
   - `package/`
-- [ ] Flache Legacy-Facades spaeter physisch entfernen, sobald keine Windows-Dateisperren mehr im Weg stehen
+- [x] Flache Legacy-Facades physisch entfernen
 - [x] Public Entry Points bewusst finalisieren
   - aktive Einstiegspunkte liegen jetzt in `compiler/`, `runtime/`, `server/`, `package/`
-  - flache Root-Dateien unter `src/framework` sind nur noch Legacy-Facades
 
 ### Gate fuer Phase 2
 
