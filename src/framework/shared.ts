@@ -69,7 +69,7 @@ export type ShowProps = {
 export type ContextDefinition<T> = {
   id: symbol;
   defaultValue: T;
-  Provider: ((props: { value: T; children?: unknown[] }) => unknown) & {
+  Provider: ((props: { value: T; children?: unknown[] }) => any) & {
     [CONTEXT_PROVIDER]: ContextDefinition<T>;
   };
 };

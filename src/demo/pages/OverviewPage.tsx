@@ -35,8 +35,8 @@ export function OverviewPage(props: OverviewPageProps) {
             <span class="section-kicker">Routing MVP</span>
             <strong>Normal anchors first</strong>
             <p>
-              The current demo uses plain <code>&lt;a href&gt;</code> tags. The router only intercepts
-              internal links it knows about.
+              The current demo uses plain <code>&lt;a href&gt;</code> tags. The router only
+              intercepts internal links it knows about.
             </p>
           </div>
         </div>

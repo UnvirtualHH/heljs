@@ -192,7 +192,10 @@ export function TodosPage(props: TodosPageProps) {
             </div>
 
             <div class="detail-meta">
-              <span class="priority-pill" data-priority={props.selectedTodo() ? props.selectedTodo()!.priority : "low"}>
+              <span
+                class="priority-pill"
+                data-priority={props.selectedTodo() ? props.selectedTodo()!.priority : "low"}
+              >
                 {props.selectedTodo() ? props.selectedTodo()!.priority : "low"}
               </span>
               <span class="todo-date">
