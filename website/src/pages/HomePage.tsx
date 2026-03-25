@@ -34,16 +34,19 @@ const launchSteps = [
 const featureCards = [
   {
     label: "Reactive let",
+    color: "#8af4d0",
     title: "State feels local again.",
     body: "Hel rewrites component-scoped let bindings into cells and slot updates without asking you to write runtime primitives by hand.",
   },
   {
     label: "Direct DOM",
+    color: "#8fb5ff",
     title: "No virtual DOM buffer layer.",
     body: "Text, attributes, keyed lists, and retained branches each have specialized runtime paths instead of one generic renderer.",
   },
   {
     label: "Real SSR",
+    color: "#ff9cd4",
     title: "Hydration is part of the design, not a demo trick.",
     body: "The framework already renders to string, marks dynamic regions, and hydrates the same structure on the client.",
   },
@@ -63,22 +66,14 @@ export function HomePage() {
 
           <div class="hero-actions">
             <a class="primary-action" href="/docs">
-              Start with the docs
+              Get started
             </a>
             <a class="secondary-action" href="/examples">
-              Open live examples
+              Live examples
             </a>
-          </div>
-
-          <div class="hero-meta-row">
-            <div class="hero-metric panel-inset">
-              <strong>80 tests</strong>
-              <span>compiler, runtime, SSR, hydration</span>
-            </div>
-            <div class="hero-metric panel-inset">
-              <strong>Package-ready</strong>
-              <span>starter and SSR starter already consume Hel externally</span>
-            </div>
+            <a class="secondary-action github-action" href="https://github.com/user/hel" target="_blank" rel="noopener">
+              GitHub
+            </a>
           </div>
         </div>
 
@@ -99,10 +94,27 @@ export function HomePage() {
         </div>
       </section>
 
+      <section class="stats-strip">
+        <div class="stat-item">
+          <strong>80 tests</strong>
+          <span>compiler, runtime, SSR, hydration</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <strong>Package-ready</strong>
+          <span>starters already consume Hel externally</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <strong>~4 KB</strong>
+          <span>runtime gzipped</span>
+        </div>
+      </section>
+
       <section class="feature-grid">
         {featureCards.map((card) => (
           <article class="feature-card panel-surface">
-            <span class="section-kicker">{card.label}</span>
+            <span class="section-kicker" style={`color: ${card.color}`}>{card.label}</span>
             <h3>{card.title}</h3>
             <p class="section-copy">{card.body}</p>
           </article>
@@ -135,19 +147,13 @@ export function HomePage() {
             <h2>Normal TypeScript in the component body</h2>
           </div>
 
-          <pre class="code-panel"><code>{`export function Counter() {
+          <pre class="code-panel compact"><code>{`export function Counter() {
   let count = 0;
-  let step = 1;
-
-  const label = () => (count % 2 === 0 ? "even" : "odd");
-
-  function increment() {
-    count += step;
-  }
+  let doubled = count * 2;
 
   return (
-    <button onClick={increment}>
-      Count: {count} ({label()})
+    <button onClick={() => count++}>
+      {count} (doubled: {doubled})
     </button>
   );
 }`}</code></pre>
