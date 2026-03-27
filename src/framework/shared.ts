@@ -9,6 +9,7 @@ export const NODE_FACTORY = Symbol("hel.node-factory");
 export const TEXT_BINDING = Symbol("hel.text-binding");
 export const ATTR_BINDING = Symbol("hel.attr-binding");
 export const TEMPLATE_FACTORY = Symbol("hel.template-factory");
+export const REF_BINDING = Symbol("hel.ref-binding");
 export const COMPONENT_REACTIVE_PROPS = Symbol("hel.component-reactive-props");
 export const CONTEXT_PROVIDER = Symbol("hel.context-provider");
 
@@ -31,6 +32,11 @@ export type TemplateFactory<T = unknown> = {
   [TEMPLATE_FACTORY]: true;
   html: string;
   read: () => T;
+};
+
+export type RefBinding<T extends Element = Element> = {
+  [REF_BINDING]: true;
+  assign: (value: T) => void;
 };
 
 export type KeyedList<T> = {
@@ -118,6 +124,10 @@ export function isAttrBinding(value: unknown): value is AttrBinding {
 
 export function isTemplateFactory(value: unknown): value is TemplateFactory {
   return typeof value === "object" && value !== null && TEMPLATE_FACTORY in value;
+}
+
+export function isRefBinding(value: unknown): value is RefBinding {
+  return typeof value === "object" && value !== null && REF_BINDING in value;
 }
 
 export function isKeyedList(value: unknown): value is KeyedList<unknown> {

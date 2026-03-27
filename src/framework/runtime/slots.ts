@@ -2,12 +2,14 @@ import {
   createScope,
   disposeScope,
   effect,
+  flushScopeMounts,
   get,
   isAttrBinding,
   isBranchBinding,
   isDynamic,
   isKeyedList,
   isNodeFactory,
+  isRefBinding,
   onScopeCleanup,
   isTemplateFactory,
   isTextBinding,
@@ -16,6 +18,7 @@ import {
   type Cell,
   type Scope,
 } from "./core";
+import { isComponentResult } from "./component";
 import {
   BLOCK_END,
   BLOCK_START,
@@ -50,6 +53,7 @@ type ListEntry<T> = {
   key: string | number;
   node: Node;
   scope: Scope;
+  mountScopes: Scope[];
 };
 
 const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
@@ -58,6 +62,12 @@ type RetainedBlockBranch = {
   signature: string;
   nodes: Node[];
   scope: Scope;
+  mountScopes: Scope[];
+};
+
+type MaterializedNodes = {
+  nodes: Node[];
+  mountScopes: Scope[];
 };
 
 function resolveComponentPropValue(value: unknown): unknown {
@@ -70,7 +80,7 @@ function resolveComponentPropValue(value: unknown): unknown {
 
 function getNodeSignature(node: Node): string {
   if (node instanceof HTMLElement) {
-    return `element:${node.tagName}`;
+    return `element:${node.tagName}[${Array.from(node.childNodes, getNodeSignature).join("|")}]`;
   }
 
   if (node instanceof Text) {
@@ -144,13 +154,19 @@ function normalizeTextValue(value: unknown): string {
   return String(value);
 }
 
-function collectNodes(value: unknown, out: Node[]): void {
+function collectNodes(value: unknown, out: Node[], mountScopes: Scope[]): void {
   if (value == null || value === false || value === true) {
     return;
   }
 
+  if (isComponentResult(value)) {
+    collectNodes(value.value, out, mountScopes);
+    mountScopes.push(value.scope);
+    return;
+  }
+
   if (isNodeFactory(value)) {
-    collectNodes(value.read(), out);
+    collectNodes(value.read(), out, mountScopes);
     return;
   }
 
@@ -161,23 +177,23 @@ function collectNodes(value: unknown, out: Node[]): void {
 
   if (isTemplateFactory(value)) {
     if (isHydrating()) {
-      collectNodes(value.read(), out);
+      collectNodes(value.read(), out, mountScopes);
       return;
     }
 
-    collectNodes(cloneTemplate(value.html), out);
+    collectNodes(cloneTemplate(value.html), out, mountScopes);
     return;
   }
 
   if (isBranchBinding(value)) {
-    collectNodes(value.when() ? value.consequent() : value.alternate(), out);
+    collectNodes(value.when() ? value.consequent() : value.alternate(), out, mountScopes);
     return;
   }
 
   if (isKeyedList(value)) {
     const items = value.read();
     for (let i = 0; i < items.length; i += 1) {
-      collectNodes(value.render(items[i]!, i), out);
+      collectNodes(value.render(items[i]!, i), out, mountScopes);
     }
     return;
   }
@@ -192,13 +208,13 @@ function collectNodes(value: unknown, out: Node[]): void {
       return;
     }
 
-    collectNodes(value.read(), out);
+    collectNodes(value.read(), out, mountScopes);
     return;
   }
 
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i += 1) {
-      collectNodes(value[i], out);
+      collectNodes(value[i], out, mountScopes);
     }
     return;
   }
@@ -219,21 +235,34 @@ function collectNodes(value: unknown, out: Node[]): void {
   out.push(document.createTextNode(String(value)));
 }
 
-function toNodeList(value: unknown): Node[] {
+function materializeNodes(value: unknown): MaterializedNodes {
   const nodes: Node[] = [];
-  collectNodes(value, nodes);
-  return nodes;
+  const mountScopes: Scope[] = [];
+  collectNodes(value, nodes, mountScopes);
+  return { nodes, mountScopes };
 }
 
-function toRenderableNode(value: unknown): Node {
-  const nodes = toNodeList(value);
+function flushMounts(scopes: Scope[]): void {
+  for (let i = 0; i < scopes.length; i += 1) {
+    flushScopeMounts(scopes[i]!);
+  }
+}
+
+function toRenderableNode(value: unknown): { node: Node; mountScopes: Scope[] } {
+  const { nodes, mountScopes } = materializeNodes(value);
 
   if (nodes.length === 0) {
-    return document.createComment("empty");
+    return {
+      node: document.createComment("empty"),
+      mountScopes,
+    };
   }
 
   if (nodes.length === 1) {
-    return nodes[0]!;
+    return {
+      node: nodes[0]!,
+      mountScopes,
+    };
   }
 
   const fragment = document.createDocumentFragment();
@@ -241,14 +270,20 @@ function toRenderableNode(value: unknown): Node {
     fragment.appendChild(node);
   }
 
-  return fragment;
+  return {
+    node: fragment,
+    mountScopes,
+  };
 }
 
-function readSingleRenderableNode(value: unknown, context: string): Node {
-  const nodes = toNodeList(value);
+function readSingleRenderableNode(value: unknown, context: string): { node: Node; mountScopes: Scope[] } {
+  const { nodes, mountScopes } = materializeNodes(value);
 
   if (nodes.length === 1) {
-    return nodes[0]!;
+    return {
+      node: nodes[0]!,
+      mountScopes,
+    };
   }
 
   if (IS_DEV) {
@@ -509,6 +544,7 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
       }
       const nextValue = runWithScope(contentScope, () => read());
       runWithScope(contentScope, () => appendChild(parent, nextValue));
+      flushScopeMounts(contentScope);
       closeHydrationFrame(blockFrame);
       hydrated = false;
       currentNodes = collectNodesBetween(start!, end!);
@@ -519,7 +555,7 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
       disposeScope(contentScope);
       contentScope = createScope();
       const nextValue = runWithScope(contentScope, () => read());
-      const nextNodes = runWithScope(contentScope, () => toNodeList(nextValue));
+      const { nodes: nextNodes, mountScopes } = runWithScope(contentScope, () => materializeNodes(nextValue));
 
       if (tryPatchNodeListInPlace(currentNodes, nextNodes)) {
         disposeScope(contentScope);
@@ -533,11 +569,13 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
         currentNodes[0]!.parentNode === parent
       ) {
         replaceNode(parent, nextNodes[0]!, currentNodes[0]!);
+        flushMounts(mountScopes);
         currentNodes = nextNodes;
         return;
       }
 
       replaceNodesBetween(parent, start!, end!, nextNodes, currentNodes.length);
+      flushMounts(mountScopes);
       currentNodes = nextNodes;
       return;
     }
@@ -545,7 +583,7 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
     const previousScope = contentScope;
     const nextScope = createScope();
     const nextValue = runWithScope(nextScope, () => read());
-    const nextNodes = runWithScope(nextScope, () => toNodeList(nextValue));
+    const { nodes: nextNodes, mountScopes: nextMountScopes } = runWithScope(nextScope, () => materializeNodes(nextValue));
 
     if (tryPatchNodeListInPlace(currentNodes, nextNodes)) {
       disposeScope(nextScope);
@@ -561,7 +599,26 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
       disposeScope(nextScope);
       chosenNodes = retainedBranch.nodes;
       chosenScope = retainedBranch.scope;
+      const chosenMountScopes = retainedBranch.mountScopes;
       retainedBranch = null;
+      if (
+        currentNodes.length === 1 &&
+        chosenNodes.length === 1 &&
+        currentNodes[0]!.parentNode === parent
+      ) {
+        replaceNode(parent, chosenNodes[0]!, currentNodes[0]!);
+        flushMounts(chosenMountScopes);
+        currentNodes = chosenNodes;
+        contentScope = chosenScope;
+        return;
+      }
+
+      replaceNodesBetween(parent, start!, end!, chosenNodes, currentNodes.length);
+      flushMounts(chosenMountScopes);
+      currentNodes = chosenNodes;
+      contentScope = chosenScope;
+      retainedBranch = null;
+      return;
     }
 
     if (previousScope && currentNodes.length > 0 && shouldRetainBlockBranch(currentNodes)) {
@@ -573,6 +630,7 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
         signature: previousSignature,
         nodes: currentNodes,
         scope: previousScope,
+        mountScopes: [],
       };
     } else {
       disposeScope(previousScope);
@@ -584,12 +642,14 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
       currentNodes[0]!.parentNode === parent
     ) {
       replaceNode(parent, chosenNodes[0]!, currentNodes[0]!);
+      flushMounts(nextMountScopes);
       currentNodes = chosenNodes;
       contentScope = chosenScope;
       return;
     }
 
     replaceNodesBetween(parent, start!, end!, chosenNodes, currentNodes.length);
+    flushMounts(nextMountScopes);
     currentNodes = chosenNodes;
     contentScope = chosenScope;
   });
@@ -598,6 +658,7 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
 type BranchEntry = {
   nodes: Node[];
   scope: Scope;
+  mountScopes: Scope[];
 };
 
 function mountBranchSlot(
@@ -666,11 +727,14 @@ function mountBranchSlot(
     const entry: BranchEntry = {
       nodes: [],
       scope,
+      mountScopes: [],
     };
     branches[kind] = entry;
 
     const read = kind === "consequent" ? binding.consequent : binding.alternate;
-    entry.nodes = runWithScope(scope, () => untrack(() => toNodeList(read())));
+    const { nodes, mountScopes } = runWithScope(scope, () => untrack(() => materializeNodes(read())));
+    entry.nodes = nodes;
+    entry.mountScopes = mountScopes;
     return entry;
   };
 
@@ -686,11 +750,13 @@ function mountBranchSlot(
       }
 
       runWithScope(scope, () => untrack(() => appendChild(parent, read())));
+      flushScopeMounts(scope);
       closeHydrationFrame(blockFrame);
 
       branches[nextKind] = {
         nodes: collectNodesBetween(start!, end!),
         scope,
+        mountScopes: [],
       };
       activeKind = nextKind;
       activeNodes = branches[nextKind]!.nodes;
@@ -710,12 +776,14 @@ function mountBranchSlot(
       activeNodes[0]!.parentNode === parent
     ) {
       replaceNode(parent, nextEntry.nodes[0]!, activeNodes[0]!);
+      flushMounts(nextEntry.mountScopes);
       activeKind = nextKind;
       activeNodes = nextEntry.nodes;
       return;
     }
 
     replaceNodesBetween(parent, start!, end!, nextEntry.nodes, activeNodes.length);
+    flushMounts(nextEntry.mountScopes);
     activeKind = nextKind;
     activeNodes = nextEntry.nodes;
   });
@@ -779,6 +847,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
           key: binding.key(item, index),
           node: nodes[index]!,
           scope: createScope(),
+          mountScopes: [],
         }));
         hydrated = false;
         return;
@@ -795,21 +864,25 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
 
       const nextEntries: Array<ListEntry<T>> = [];
       const freshNodes: Node[] = [];
+      const freshMounts: Scope[] = [];
 
       for (let index = 0; index < items.length; index += 1) {
         const item = items[index]!;
         const scope = createScope();
-        const node = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
+        const { node, mountScopes } = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
         freshNodes.push(node);
+        freshMounts.push(...mountScopes);
         nextEntries.push({
           item,
           key: binding.key(item, index),
           node,
           scope,
+          mountScopes,
         });
       }
 
       insertNodesBefore(parent, freshNodes, end!);
+      flushMounts(freshMounts);
       currentEntries = nextEntries;
       return;
     }
@@ -834,7 +907,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
         }
 
         const scope = createScope();
-        const node = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
+        const { node, mountScopes } = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
 
         if (
           previous.node.parentNode === parent &&
@@ -847,6 +920,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
             key,
             node: previous.node,
             scope: previous.scope,
+            mountScopes: previous.mountScopes,
           });
           continue;
         }
@@ -854,12 +928,14 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
         if (previous.node.parentNode === parent) {
           replaceNode(parent, node, previous.node);
         }
+        flushMounts(mountScopes);
         disposeScope(previous.scope);
         nextEntries.push({
           item,
           key,
           node,
           scope,
+          mountScopes,
         });
       }
 
@@ -892,7 +968,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
       }
 
       const scope = createScope();
-      const node = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
+      const { node, mountScopes } = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
 
       if (
         previous &&
@@ -906,12 +982,14 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
           key,
           node: previous.node,
           scope: previous.scope,
+          mountScopes: previous.mountScopes,
         });
         continue;
       }
 
       if (previous?.node.parentNode === parent) {
         replaceNode(parent, node, previous.node);
+        flushMounts(mountScopes);
         disposeScope(previous.scope);
       }
 
@@ -920,6 +998,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
         key,
         node,
         scope,
+        mountScopes,
       });
     }
 
@@ -933,6 +1012,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
     let anchor: Node = start!;
     let pendingInsertions: Node[] = [];
     let pendingReference: Node | null = end!;
+    let pendingMounts: Scope[] = [];
 
     const flushPendingInsertions = (): void => {
       if (pendingInsertions.length === 0) {
@@ -940,7 +1020,9 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
       }
 
       insertNodesBefore(parent, pendingInsertions, pendingReference);
+      flushMounts(pendingMounts);
       pendingInsertions = [];
+      pendingMounts = [];
     };
 
     for (const entry of nextEntries) {
@@ -953,10 +1035,12 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
 
       if (entry.node.parentNode !== parent) {
         pendingInsertions.push(entry.node);
+        pendingMounts.push(...entry.mountScopes);
         pendingReference = expectedNextSibling ?? end!;
       } else {
         flushPendingInsertions();
         insertNodeBefore(parent, entry.node, expectedNextSibling ?? end!);
+        flushMounts(entry.mountScopes);
       }
 
       anchor = entry.node;
@@ -997,6 +1081,12 @@ function mountAttrSlot(element: HTMLElement, key: string, read: () => unknown): 
 }
 
 export function appendChild(parent: Node, value: unknown): void {
+  if (isComponentResult(value)) {
+    appendChild(parent, value.value);
+    flushScopeMounts(value.scope);
+    return;
+  }
+
   if (isNodeFactory(value)) {
     appendChild(parent, value.read());
     return;
@@ -1065,6 +1155,18 @@ function shouldDeferProperty(element: HTMLElement, key: string): boolean {
 function applyProp(element: HTMLElement, key: string, value: unknown): void {
   if (key === "children") {
     return;
+  }
+
+  if (key === "ref") {
+    if (isRefBinding(value)) {
+      value.assign(element);
+      return;
+    }
+
+    if (typeof value === "function") {
+      value(element);
+      return;
+    }
   }
 
   if (key.startsWith("on") && typeof value === "function") {

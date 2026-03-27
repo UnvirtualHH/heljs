@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { attr, branch, cell, createContext, createRouter, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, resetRuntimeStats, set, Show, store, text, tpl, useContext } from "./index";
+import { attr, branch, cell, createContext, createRouter, dynAttr, dynBlock, dynText, effect, For, frag, get, getRuntimeStats, h, hydrate, list, mount, node, onCleanup, onMount, ref, resetRuntimeStats, set, Show, store, text, tpl, useContext } from "./index";
+import { App as WebsiteApp } from "../../../website/src/App";
 import {
   branch as serverBranch,
   createRouter as createServerRouter,
@@ -1488,6 +1489,77 @@ describe("runtime", () => {
     expect(Array.from(spans, (entry) => entry.textContent)).toEqual(["left", "right"]);
   });
 
+  it("assigns refs before onMount and runs onMount after component insertion", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const calls: string[] = [];
+
+    function Field() {
+      let input: HTMLInputElement | null = null;
+
+      onMount(() => {
+        calls.push(input?.isConnected ? input.value : "missing");
+      });
+
+      return h("input", {
+        value: "ready",
+        ref: ref((element: HTMLInputElement) => {
+          input = element;
+          calls.push("ref");
+        }),
+      });
+    }
+
+    mount(() => h("section", null, h(Field, null)), root);
+    await flushMicrotask();
+
+    const input = root.querySelector("input");
+    expect(input?.value).toBe("ready");
+    expect(calls).toEqual(["ref", "ready"]);
+  });
+
+  it("disposes component-level cleanups when a mounted component leaves the tree", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const visible = cell(true);
+    const events: string[] = [];
+
+    function Panel() {
+      onMount(() => {
+        events.push("mount");
+      });
+
+      onCleanup(() => {
+        events.push("cleanup");
+      });
+
+      return h("p", { class: "panel" }, "panel");
+    }
+
+    mount(
+      () =>
+        h(
+          "section",
+          null,
+          dynBlock(() => (get(visible) ? h(Panel, null) : h("p", { class: "empty" }, "empty"))),
+        ),
+      root,
+    );
+
+    await flushMicrotask();
+    expect(events).toEqual(["mount"]);
+    expect(root.querySelector(".panel")?.textContent).toBe("panel");
+
+    set(visible, false);
+    await flushMicrotask();
+
+    expect(events).toEqual(["mount", "cleanup"]);
+    expect(root.querySelector(".panel")).toBeNull();
+    expect(root.querySelector(".empty")?.textContent).toBe("empty");
+  });
+
   it("hydrates function components with multiple roots without remounting them", () => {
     const root = document.createElement("div");
 
@@ -1746,6 +1818,33 @@ describe("runtime", () => {
     expect(clientRouter.query().filter).toBe("open");
     expect(root.querySelector("h2")?.textContent).toBe("Todo beta");
     expect(root.querySelector("p")?.textContent).toBe("Filter open");
+  });
+
+  it("keeps website navigation targets stable across examples, docs, and home", async () => {
+    window.history.replaceState(null, "", "/examples");
+
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    mount(() => h(WebsiteApp, null), root);
+
+    expect(window.location.pathname).toBe("/examples");
+
+    root
+      .querySelector('a[href="/docs"]')
+      ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    await flushMicrotask();
+
+    expect(window.location.pathname).toBe("/docs");
+
+    root
+      .querySelector('a.brand-lockup[href="/"]')
+      ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    await flushMicrotask();
+
+    expect(window.location.pathname).toBe("/");
+    expect(root.querySelector('a.site-link[href="/"]')?.getAttribute("data-active")).toBe("");
+    expect(root.querySelector(".home-page")).not.toBeNull();
   });
 
   it("does not double-bind hydrated event listeners", () => {

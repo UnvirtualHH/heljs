@@ -126,6 +126,10 @@ export function canPatchNodeInPlace(current: Node, next: Node): boolean {
     return true;
   }
 
+  if (current.nodeType === Node.COMMENT_NODE) {
+    return true;
+  }
+
   if (!(current instanceof HTMLElement) || !(next instanceof HTMLElement)) {
     return false;
   }
@@ -158,6 +162,10 @@ export function patchNodeInPlace(current: Node, next: Node): void {
     return;
   }
 
+  if (current.nodeType === Node.COMMENT_NODE) {
+    return;
+  }
+
   if (!(current instanceof HTMLElement) || !(next instanceof HTMLElement)) {
     return;
   }
@@ -174,58 +182,26 @@ export function patchNodeInPlace(current: Node, next: Node): void {
 }
 
 /**
- * Single-pass: check patchability and patch in one traversal.
- * Returns true if patched successfully, false if structures are incompatible.
+ * Two-phase approach: first check if patching is structurally possible (read-only),
+ * then apply the patches. This prevents partial DOM corruption when the check
+ * fails partway through a recursive traversal.
  */
 export function tryPatchNodeInPlace(current: Node, next: Node): boolean {
-  if (current.nodeType !== next.nodeType) {
+  if (!canPatchNodeInPlace(current, next)) {
     return false;
   }
 
-  if (current.nodeType === Node.TEXT_NODE) {
-    const currentText = current as Text;
-    const nextText = next as Text;
-    if (currentText.data !== nextText.data) {
-      currentText.data = nextText.data;
-      if (IS_DEV) runtimeStats.textPatches += 1;
-    }
-    return true;
-  }
-
-  if (!(current instanceof HTMLElement) || !(next instanceof HTMLElement)) {
-    return false;
-  }
-
-  if (current.tagName !== next.tagName) {
-    return false;
-  }
-
-  if (current.childNodes.length !== next.childNodes.length) {
-    return false;
-  }
-
-  for (let index = 0; index < current.childNodes.length; index += 1) {
-    if (!tryPatchNodeInPlace(current.childNodes[index]!, next.childNodes[index]!)) {
-      return false;
-    }
-  }
-
-  if (IS_DEV) runtimeStats.inPlacePatches += 1;
-  syncEventBindings(current, next);
-  syncAttributes(current, next);
-  syncSpecialElementState(current, next);
+  patchNodeInPlace(current, next);
   return true;
 }
 
 export function tryPatchNodeListInPlace(currentNodes: Node[], nextNodes: Node[]): boolean {
-  if (currentNodes.length !== nextNodes.length) {
+  if (!canPatchNodeListInPlace(currentNodes, nextNodes)) {
     return false;
   }
 
   for (let index = 0; index < currentNodes.length; index += 1) {
-    if (!tryPatchNodeInPlace(currentNodes[index]!, nextNodes[index]!)) {
-      return false;
-    }
+    patchNodeInPlace(currentNodes[index]!, nextNodes[index]!);
   }
 
   return true;

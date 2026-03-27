@@ -22,7 +22,10 @@ import {
   isTextBinding,
   list,
   node,
+  onCleanup,
+  onMount,
   onScopeCleanup,
+  ref,
   resetRuntimeStats,
   runWithScope,
   runtimeStats,
@@ -54,6 +57,9 @@ export {
   getRuntimeStats,
   list,
   node,
+  onCleanup,
+  onMount,
+  ref,
   resetRuntimeStats,
   set,
   Show,
@@ -103,6 +109,7 @@ import { createBrowserRouter, type BrowserRouter } from "./router";
 import {
   appendNode,
 } from "./dom";
+import { componentResult } from "./component";
 import {
   appendChild,
   applyProps,
@@ -187,6 +194,13 @@ function supportsReactiveComponentProps(tag: unknown): boolean {
   );
 }
 
+function renderComponentWithScope(render: () => unknown): unknown {
+  const scope = createScope();
+  onScopeCleanup(() => disposeScope(scope));
+  const value = runWithScope(scope, render);
+  return componentResult(value, scope);
+}
+
 export function h(
   tag: string | ((props: any) => unknown),
   props: Record<string, unknown> | null,
@@ -209,10 +223,10 @@ export function h(
     }
 
     if (hasReactiveComponentProps(props) && supportsReactiveComponentProps(tag)) {
-      return tag(createComponentPropsView(props, children));
+      return renderComponentWithScope(() => tag(createComponentPropsView(props, children)));
     }
 
-    const renderComponent = () => tag(resolveComponentProps(props, children));
+    const renderComponent = () => renderComponentWithScope(() => tag(resolveComponentProps(props, children)));
 
     if (hasReactiveComponentProps(props)) {
       return dynBlock(renderComponent);

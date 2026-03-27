@@ -60,7 +60,7 @@ export function HomePage() {
           <span class="section-kicker">Cute on the surface. Ruthless under the hood.</span>
           <h1>Keep your app code plain. Let the compiler do the creepy work.</h1>
           <p class="hero-copy">
-            Hel is a compiler-first framework for people who like direct reactivity but do not want
+            Hel is a compiler-first JSX/TSX framework for people who like direct reactivity but do not want
             to wire `signal()`, `memo()`, and `effect()` all across user code.
           </p>
 
@@ -101,8 +101,8 @@ export function HomePage() {
         </div>
         <div class="stat-divider"></div>
         <div class="stat-item">
-          <strong>Package-ready</strong>
-          <span>starters already consume Hel externally</span>
+          <strong>JSX / TSX</strong>
+          <span>first-class component authoring</span>
         </div>
         <div class="stat-divider"></div>
         <div class="stat-item">
@@ -147,7 +147,8 @@ export function HomePage() {
             <h2>Normal TypeScript in the component body</h2>
           </div>
 
-          <pre class="code-panel compact"><code>{`export function Counter() {
+          <pre class="code-panel compact"><code>{`// Counter.tsx — plain JSX, no signal API
+export function Counter() {
   let count = 0;
   let doubled = count * 2;
 

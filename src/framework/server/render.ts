@@ -153,7 +153,7 @@ function serializeProps(props: Record<string, unknown> | null): string {
   const attributes: string[] = [];
 
   for (const [rawKey, rawValue] of Object.entries(props)) {
-    if (rawKey === "children" || rawKey.startsWith("on")) {
+    if (rawKey === "children" || rawKey === "ref" || rawKey.startsWith("on")) {
       continue;
     }
 

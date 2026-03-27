@@ -8,6 +8,7 @@ import {
   DYNAMIC,
   LIST,
   NODE_FACTORY,
+  REF_BINDING,
   TEMPLATE_FACTORY,
   TEXT_BINDING,
   type AttrBinding,
@@ -16,6 +17,7 @@ import {
   type ForProps,
   type KeyedList,
   type NodeFactory,
+  type RefBinding,
   type ShowProps,
   type TemplateFactory,
   type TextBinding,
@@ -23,6 +25,7 @@ import {
   isBranchBinding,
   isDynamic,
   isNodeFactory,
+  isRefBinding,
   isTemplateFactory,
   isTextBinding,
 } from "../shared";
@@ -36,7 +39,9 @@ type EffectRunner = (() => void) & {
 export type Scope = {
   parent: Scope | null;
   cleanups: Array<() => void>;
+  mounts: Array<() => void>;
   active: boolean;
+  mounted: boolean;
 };
 
 export interface Cell<T> {
@@ -99,6 +104,27 @@ export function resetRuntimeStats(): void {
 }
 
 let flushBuffer: EffectRunner[] = [];
+const mountQueue = new Set<Scope>();
+let mountsScheduled = false;
+
+function flushMountQueue(): void {
+  mountsScheduled = false;
+
+  for (const scope of mountQueue) {
+    mountQueue.delete(scope);
+
+    if (!scope.active) {
+      continue;
+    }
+
+    const mounts = scope.mounts;
+    scope.mounts = [];
+
+    for (let i = 0; i < mounts.length; i += 1) {
+      mounts[i]!();
+    }
+  }
+}
 
 function flushQueue(): void {
   scheduled = false;
@@ -222,7 +248,9 @@ export function createScope(): Scope {
   return {
     parent: activeScope,
     cleanups: [],
+    mounts: [],
     active: true,
+    mounted: false,
   };
 }
 
@@ -232,6 +260,18 @@ export function onScopeCleanup(fn: () => void): void {
   }
 
   activeScope.cleanups.push(fn);
+}
+
+export function onCleanup(fn: () => void): void {
+  onScopeCleanup(fn);
+}
+
+export function onMount(fn: () => void): void {
+  if (!activeScope || !activeScope.active || activeScope.mounted) {
+    return;
+  }
+
+  activeScope.mounts.push(fn);
 }
 
 export function runWithScope<T>(scope: Scope, fn: () => T): T {
@@ -257,6 +297,20 @@ export function disposeScope(scope: Scope | null): void {
 
   for (let i = cleanups.length - 1; i >= 0; i -= 1) {
     cleanups[i]!();
+  }
+}
+
+export function flushScopeMounts(scope: Scope | null): void {
+  if (!scope || !scope.active || scope.mounted) {
+    return;
+  }
+
+  scope.mounted = true;
+  mountQueue.add(scope);
+
+  if (!mountsScheduled) {
+    mountsScheduled = true;
+    queueMicrotask(flushMountQueue);
   }
 }
 
@@ -465,6 +519,13 @@ export function tpl<T>(html: string, read: () => T): TemplateFactory<T> {
   };
 }
 
+export function ref<T extends Element>(assign: (value: T) => void): RefBinding<T> {
+  return {
+    [REF_BINDING]: true,
+    assign,
+  };
+}
+
 function createDynamic<T>(kind: DynamicKind, read: () => T): Dynamic<T> {
   return {
     [DYNAMIC]: true,
@@ -585,6 +646,7 @@ export {
   isDynamic,
   isKeyedList,
   isNodeFactory,
+  isRefBinding,
   isTemplateFactory,
   isTextBinding,
 } from "../shared";

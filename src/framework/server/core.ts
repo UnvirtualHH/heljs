@@ -8,6 +8,7 @@ import {
   DYNAMIC,
   LIST,
   NODE_FACTORY,
+  REF_BINDING,
   TEMPLATE_FACTORY,
   TEXT_BINDING,
   type AttrBinding,
@@ -16,6 +17,7 @@ import {
   type ForProps,
   type KeyedList,
   type NodeFactory,
+  type RefBinding,
   type ShowProps,
   type TemplateFactory,
   type TextBinding,
@@ -60,6 +62,14 @@ export function set<T>(slot: Cell<T>, next: T): T {
 export function effect(fn: () => void): () => void {
   fn();
   return () => undefined;
+}
+
+export function onCleanup(_fn: () => void): void {
+  return;
+}
+
+export function onMount(_fn: () => void): void {
+  return;
 }
 
 function unwrapContextValue<T>(value: T): T {
@@ -156,6 +166,13 @@ export function tpl<T>(html: string, read: () => T): TemplateFactory<T> {
     [TEMPLATE_FACTORY]: true,
     html,
     read,
+  };
+}
+
+export function ref<T extends Element>(assign: (value: T) => void): RefBinding<T> {
+  return {
+    [REF_BINDING]: true,
+    assign,
   };
 }
 

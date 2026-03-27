@@ -4,13 +4,23 @@ import {
   findRoute,
   matchRoutePath,
   mergeRouteQuery,
-  normalizeRoutePath,
   parseRouteLocation,
   type QueryInput,
   type RouteDefinition,
   type RouterOptions,
 } from "../shared";
 import type { Dynamic } from "../shared";
+
+function shallowEqual(a: Record<string, string>, b: Record<string, string>): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (let i = 0; i < aKeys.length; i++) {
+    const key = aKeys[i]!;
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
 
 export type BrowserRouter = {
   currentPath: () => string;
@@ -50,7 +60,8 @@ export function createBrowserRouter(
     currentPath: () => get(path),
     params: () => get(params),
     query: () => get(query),
-    href: (targetPath: string, nextQuery: QueryInput = {}) => buildRouteTarget(targetPath, nextQuery),
+    href: (targetPath: string, nextQuery: QueryInput = {}) =>
+      buildRouteTarget(targetPath, nextQuery),
     setQuery: (patch: QueryInput, navOptions?: { replace?: boolean }) => {
       const currentPath = get(path);
       const nextQuery = mergeRouteQuery(get(query), patch);
@@ -80,8 +91,16 @@ export function createBrowserRouter(
       }
 
       set(path, nextLocation.path);
-      set(params, nextMatch?.params ?? {});
-      set(query, nextLocation.query);
+
+      const nextParams = nextMatch?.params ?? {};
+      if (!shallowEqual(get(params), nextParams)) {
+        set(params, nextParams);
+      }
+
+      const nextQuery = nextLocation.query;
+      if (!shallowEqual(get(query), nextQuery)) {
+        set(query, nextQuery);
+      }
     },
     view: () =>
       dynBlock(() => {
@@ -126,9 +145,10 @@ function installRouterEvents(router: InstallableRouter): void {
       return;
     }
 
-    const anchor = target instanceof HTMLAnchorElement
-      ? target
-      : target.parentElement?.closest("a[href]");
+    const anchor =
+      target instanceof HTMLAnchorElement
+        ? target
+        : target.parentElement?.closest("a[href]");
 
     if (!(anchor instanceof HTMLAnchorElement)) {
       return;
@@ -157,7 +177,9 @@ function installRouterEvents(router: InstallableRouter): void {
   };
 
   const onPopState = () => {
-    router.navigate(`${window.location.pathname}${window.location.search}`, { replace: true });
+    router.navigate(`${window.location.pathname}${window.location.search}`, {
+      replace: true,
+    });
   };
 
   document.addEventListener("click", onClick);

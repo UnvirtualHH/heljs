@@ -66,6 +66,7 @@ export function DocsPage() {
             <h2>What Hel already handles</h2>
           </div>
           <ul class="plain-list accent-list">
+            <li>JSX / TSX component authoring with full TypeScript support</li>
             <li>reactive component-scoped let state</li>
             <li>direct DOM runtime without a virtual DOM</li>
             <li>SSR string rendering and hydration</li>
