@@ -55,6 +55,10 @@ function syncEventBindings(current: HTMLElement, next: HTMLElement): void {
 }
 
 function syncAttributes(current: HTMLElement, next: HTMLElement): void {
+  if (current.attributes.length === 0 && next.attributes.length === 0) {
+    return;
+  }
+
   const nextNames = next.getAttributeNames();
   const nextNameSet = new Set(nextNames);
 
@@ -115,6 +119,19 @@ function syncSpecialElementState(current: HTMLElement, next: HTMLElement): void 
       current.selected = next.selected;
     }
   }
+}
+
+function hasEventBindings(element: HTMLElement): boolean {
+  return Boolean(eventBindings.get(element)?.size);
+}
+
+function needsSpecialStateSync(current: HTMLElement, next: HTMLElement): boolean {
+  return (
+    (isInstanceOf<HTMLInputElement>(current, "HTMLInputElement") && isInstanceOf<HTMLInputElement>(next, "HTMLInputElement")) ||
+    (isInstanceOf<HTMLTextAreaElement>(current, "HTMLTextAreaElement") && isInstanceOf<HTMLTextAreaElement>(next, "HTMLTextAreaElement")) ||
+    (isInstanceOf<HTMLSelectElement>(current, "HTMLSelectElement") && isInstanceOf<HTMLSelectElement>(next, "HTMLSelectElement")) ||
+    (isInstanceOf<HTMLOptionElement>(current, "HTMLOptionElement") && isInstanceOf<HTMLOptionElement>(next, "HTMLOptionElement"))
+  );
 }
 
 export function canPatchNodeInPlace(current: Node, next: Node): boolean {
@@ -181,27 +198,90 @@ export function patchNodeInPlace(current: Node, next: Node): void {
   syncSpecialElementState(current, next);
 }
 
-/**
- * Two-phase approach: first check if patching is structurally possible (read-only),
- * then apply the patches. This prevents partial DOM corruption when the check
- * fails partway through a recursive traversal.
- */
-export function tryPatchNodeInPlace(current: Node, next: Node): boolean {
-  if (!canPatchNodeInPlace(current, next)) {
+function patchNodeInPlaceIfPossible(current: Node, next: Node): boolean {
+  if (current.nodeType !== next.nodeType) {
     return false;
   }
 
-  patchNodeInPlace(current, next);
+  if (current.nodeType === Node.TEXT_NODE && next.nodeType === Node.TEXT_NODE) {
+    const currentText = current as Text;
+    const nextText = next as Text;
+    if (currentText.data !== nextText.data) {
+      currentText.data = nextText.data;
+      if (IS_DEV) runtimeStats.textPatches += 1;
+    }
+    return true;
+  }
+
+  if (current.nodeType === Node.COMMENT_NODE && next.nodeType === Node.COMMENT_NODE) {
+    return true;
+  }
+
+  if (!(current instanceof HTMLElement) || !(next instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (current.tagName !== next.tagName || current.childNodes.length !== next.childNodes.length) {
+    return false;
+  }
+
+  const specialState = needsSpecialStateSync(current, next);
+  const currentHasEvents = hasEventBindings(current);
+  const nextHasEvents = hasEventBindings(next);
+  const hasAttributes = current.attributes.length !== 0 || next.attributes.length !== 0;
+  const canFastPatchLeaf =
+    !specialState &&
+    !currentHasEvents &&
+    !nextHasEvents &&
+    !hasAttributes &&
+    current.childNodes.length === 1 &&
+    current.firstChild?.nodeType === Node.TEXT_NODE &&
+    next.firstChild?.nodeType === Node.TEXT_NODE;
+
+  if (canFastPatchLeaf) {
+    if (IS_DEV) runtimeStats.inPlacePatches += 1;
+    const currentText = current.firstChild as Text;
+    const nextText = next.firstChild as Text;
+    if (currentText.data !== nextText.data) {
+      currentText.data = nextText.data;
+      if (IS_DEV) runtimeStats.textPatches += 1;
+    }
+    return true;
+  }
+
+  if (IS_DEV) runtimeStats.inPlacePatches += 1;
+  const canFastPatchContainer = !specialState && !currentHasEvents && !nextHasEvents && !hasAttributes;
+
+  if (!canFastPatchContainer) {
+    syncEventBindings(current, next);
+    syncAttributes(current, next);
+  }
+
+  for (let index = 0; index < current.childNodes.length; index += 1) {
+    if (!patchNodeInPlaceIfPossible(current.childNodes[index]!, next.childNodes[index]!)) {
+      return false;
+    }
+  }
+
+  if (!canFastPatchContainer && specialState) {
+    syncSpecialElementState(current, next);
+  }
   return true;
 }
 
+export function tryPatchNodeInPlace(current: Node, next: Node): boolean {
+  return patchNodeInPlaceIfPossible(current, next);
+}
+
 export function tryPatchNodeListInPlace(currentNodes: Node[], nextNodes: Node[]): boolean {
-  if (!canPatchNodeListInPlace(currentNodes, nextNodes)) {
+  if (currentNodes.length !== nextNodes.length) {
     return false;
   }
 
   for (let index = 0; index < currentNodes.length; index += 1) {
-    patchNodeInPlace(currentNodes[index]!, nextNodes[index]!);
+    if (!patchNodeInPlaceIfPossible(currentNodes[index]!, nextNodes[index]!)) {
+      return false;
+    }
   }
 
   return true;

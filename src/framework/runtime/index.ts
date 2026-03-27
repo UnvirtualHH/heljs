@@ -166,6 +166,22 @@ function createComponentPropsView(
           return value.read();
         }
 
+        if (isTextBinding(value)) {
+          return get(value.cell as Cell<unknown>);
+        }
+
+        if (isAttrBinding(value)) {
+          return get(value.cell as Cell<unknown>);
+        }
+
+        if (isNodeFactory(value)) {
+          return value.read();
+        }
+
+        if (isTemplateFactory(value)) {
+          return value.read();
+        }
+
         return value;
       },
     });

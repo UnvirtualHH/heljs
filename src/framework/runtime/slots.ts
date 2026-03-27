@@ -70,8 +70,41 @@ type MaterializedNodes = {
   mountScopes: Scope[];
 };
 
+function renderListEntry<T>(
+  binding: KeyedList<T>,
+  item: T,
+  index: number,
+  key: string | number,
+): ListEntry<T> {
+  const scope = createScope();
+  const { node, mountScopes } = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
+  return {
+    item,
+    key,
+    node,
+    scope,
+    mountScopes,
+  };
+}
+
 function resolveComponentPropValue(value: unknown): unknown {
   if (isDynamic(value)) {
+    return value.read();
+  }
+
+  if (isTextBinding(value)) {
+    return get(value.cell as Cell<unknown>);
+  }
+
+  if (isAttrBinding(value)) {
+    return get(value.cell as Cell<unknown>);
+  }
+
+  if (isNodeFactory(value)) {
+    return value.read();
+  }
+
+  if (isTemplateFactory(value)) {
     return value.read();
   }
 
@@ -122,7 +155,13 @@ export function hasReactiveComponentProps(props: Record<string, unknown> | null)
   }
 
   for (const key in props) {
-    if (isDynamic(props[key])) {
+    if (
+      isDynamic(props[key]) ||
+      isAttrBinding(props[key]) ||
+      isTextBinding(props[key]) ||
+      isNodeFactory(props[key]) ||
+      isTemplateFactory(props[key])
+    ) {
       return true;
     }
   }
@@ -857,6 +896,11 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
     }
 
     const items = binding.read();
+    const nextKeys = new Array<string | number>(items.length);
+    for (let index = 0; index < items.length; index += 1) {
+      nextKeys[index] = binding.key(items[index]!, index);
+    }
+
     if (currentEntries.length === 0) {
       if (items.length === 0) {
         return;
@@ -868,17 +912,10 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
 
       for (let index = 0; index < items.length; index += 1) {
         const item = items[index]!;
-        const scope = createScope();
-        const { node, mountScopes } = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
-        freshNodes.push(node);
-        freshMounts.push(...mountScopes);
-        nextEntries.push({
-          item,
-          key: binding.key(item, index),
-          node,
-          scope,
-          mountScopes,
-        });
+        const entry = renderListEntry(binding, item, index, nextKeys[index]!);
+        freshNodes.push(entry.node);
+        freshMounts.push(...entry.mountScopes);
+        nextEntries.push(entry);
       }
 
       insertNodesBefore(parent, freshNodes, end!);
@@ -888,58 +925,55 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
     }
 
     if (currentEntries.length === items.length) {
-      const nextEntries: Array<ListEntry<T>> = [];
       let stableOrder = true;
 
       for (let index = 0; index < items.length; index += 1) {
-        const item = items[index]!;
-        const key = binding.key(item, index);
-        const previous = currentEntries[index]!;
-
-        if (previous.key !== key) {
+        if (currentEntries[index]!.key !== nextKeys[index]!) {
           stableOrder = false;
           break;
         }
-
-        if (previous.item === item) {
-          nextEntries.push(previous);
-          continue;
-        }
-
-        const scope = createScope();
-        const { node, mountScopes } = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
-
-        if (
-          previous.node.parentNode === parent &&
-          scope.cleanups.length === 0 &&
-          tryPatchNodeInPlace(previous.node, node)
-        ) {
-          disposeScope(scope);
-          nextEntries.push({
-            item,
-            key,
-            node: previous.node,
-            scope: previous.scope,
-            mountScopes: previous.mountScopes,
-          });
-          continue;
-        }
-
-        if (previous.node.parentNode === parent) {
-          replaceNode(parent, node, previous.node);
-        }
-        flushMounts(mountScopes);
-        disposeScope(previous.scope);
-        nextEntries.push({
-          item,
-          key,
-          node,
-          scope,
-          mountScopes,
-        });
       }
 
       if (stableOrder) {
+      const nextEntries: Array<ListEntry<T>> = [];
+
+        for (let index = 0; index < items.length; index += 1) {
+          const item = items[index]!;
+          const key = nextKeys[index]!;
+          const previous = currentEntries[index]!;
+
+          if (previous.item === item) {
+            nextEntries.push(previous);
+            continue;
+          }
+
+          const nextEntry = renderListEntry(binding, item, index, key);
+
+          if (
+            previous.node.parentNode === parent &&
+            nextEntry.scope.cleanups.length === 0 &&
+            nextEntry.scope.mounts.length === 0 &&
+            tryPatchNodeInPlace(previous.node, nextEntry.node)
+          ) {
+            disposeScope(nextEntry.scope);
+            nextEntries.push({
+              item,
+              key,
+              node: previous.node,
+              scope: previous.scope,
+              mountScopes: previous.mountScopes,
+            });
+            continue;
+          }
+
+          if (previous.node.parentNode === parent) {
+            replaceNode(parent, nextEntry.node, previous.node);
+          }
+          flushMounts(nextEntry.mountScopes);
+          disposeScope(previous.scope);
+          nextEntries.push(nextEntry);
+        }
+
         currentEntries = nextEntries;
         return;
       }
@@ -958,7 +992,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
 
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index]!;
-      const key = binding.key(item, index);
+      const key = nextKeys[index]!;
       const previous = previousByKey.get(key);
       previousByKey.delete(key);
 
@@ -967,16 +1001,16 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
         continue;
       }
 
-      const scope = createScope();
-      const { node, mountScopes } = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
+      const nextEntry = renderListEntry(binding, item, index, key);
 
       if (
         previous &&
         previous.node.parentNode === parent &&
-        scope.cleanups.length === 0 &&
-        tryPatchNodeInPlace(previous.node, node)
+        nextEntry.scope.cleanups.length === 0 &&
+        nextEntry.scope.mounts.length === 0 &&
+        tryPatchNodeInPlace(previous.node, nextEntry.node)
       ) {
-        disposeScope(scope);
+        disposeScope(nextEntry.scope);
         nextEntries.push({
           item,
           key,
@@ -988,18 +1022,12 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
       }
 
       if (previous?.node.parentNode === parent) {
-        replaceNode(parent, node, previous.node);
-        flushMounts(mountScopes);
+        replaceNode(parent, nextEntry.node, previous.node);
+        flushMounts(nextEntry.mountScopes);
         disposeScope(previous.scope);
       }
 
-      nextEntries.push({
-        item,
-        key,
-        node,
-        scope,
-        mountScopes,
-      });
+      nextEntries.push(nextEntry);
     }
 
     for (const entry of previousByKey.values()) {

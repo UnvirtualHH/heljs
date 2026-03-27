@@ -146,17 +146,74 @@ describe("compiler plugin", () => {
     expect(error?.message).toContain("Counter");
   });
 
-  it("fails loudly for component parameter destructuring", () => {
-    const error = transformError(`
+  it("keeps body-level prop destructuring reactive", () => {
+    const output = transform(`
+      export function TodoCard(props) {
+        const { todo, selectedId } = props;
+        return <article data-selected={selectedId === todo.id}>{selectedId}</article>;
+      }
+    `);
+
+    expect(output).toContain("const __prop_0 = () => props.todo;");
+    expect(output).toContain("const __prop_1 = () => props.selectedId;");
+    expect(output).toContain("__dynAttr(() => __prop_1() === __prop_0().id)");
+    expect(output).toContain("__dynText(() => __prop_1())");
+  });
+
+  it("keeps parameter prop destructuring reactive", () => {
+    const output = transform(`
       export function TodoCard({ todo, selectedId }) {
         return <article data-selected={selectedId === todo.id}>{selectedId}</article>;
       }
     `);
 
-    expect(error).not.toBeNull();
-    expect(error?.message).toContain("component parameters other than a plain identifier are not supported yet");
-    expect(error?.message).toContain("Component.tsx");
-    expect(error?.message).toContain("TodoCard");
+    expect(output).toContain("function TodoCard(_props)");
+    expect(output).toContain("const __prop_0 = () => _props.todo;");
+    expect(output).toContain("const __prop_1 = () => _props.selectedId;");
+    expect(output).toContain("__dynAttr(() => __prop_1() === __prop_0().id)");
+    expect(output).toContain("__dynText(() => __prop_1())");
+  });
+
+  it("supports nested prop destructuring and aliases reactively", () => {
+    const output = transform(`
+      export function TodoCard(props) {
+        const { todo: { title }, meta: info } = props;
+        return <article>{title} / {info.level}</article>;
+      }
+    `);
+
+    expect(output).toContain("const __prop_0 = () => props.todo.title;");
+    expect(output).toContain("const __prop_1 = () => props.meta;");
+    expect(output).toContain("__dynText(() => __prop_0())");
+    expect(output).toContain("__dynText(() => __prop_1().level)");
+  });
+
+  it("supports nested parameter destructuring with defaults reactively", () => {
+    const output = transform(`
+      export function TodoCard({ todo: { title = "fallback" } }) {
+        return <article>{title}</article>;
+      }
+    `);
+
+    expect(output).toContain('function TodoCard(_props)');
+    expect(output).toContain('return __value === undefined ? "fallback" : __value;');
+    expect(output).toContain("__dynText(() => __prop_0())");
+  });
+
+  it("treats helper functions that return destructured children as block dynamics", () => {
+    const output = transform(`
+      export function Panel(props) {
+        const { children } = props;
+        function content() {
+          return children;
+        }
+        return <section>{content()}</section>;
+      }
+    `);
+
+    expect(output).toContain("const __prop_0 = () => props.children;");
+    expect(output).toContain("__dynBlock(() => content())");
+    expect(output).not.toContain("__dynText(() => content())");
   });
 
   it("fails loudly for component default parameters", () => {
@@ -219,5 +276,19 @@ describe("compiler plugin", () => {
 
     expect(output).toContain("__dynAttr(() => props.selectedId === props.todo.id)");
     expect(output).toContain("__dynText(() => props.selectedId)");
+  });
+
+  it("rewrites reactive const derivations into internal derived helpers", () => {
+    const output = transform(`
+      export function Counter() {
+        let count = 0;
+        const label = count % 2 === 0 ? "even" : "odd";
+        return <p>{label}</p>;
+      }
+    `);
+
+    expect(output).toContain("const __derived_label_0 = () =>");
+    expect(output).toContain("__get(__cell_count_0) % 2 === 0 ? \"even\" : \"odd\"");
+    expect(output).toContain("__dynText(() => __derived_label_0())");
   });
 });

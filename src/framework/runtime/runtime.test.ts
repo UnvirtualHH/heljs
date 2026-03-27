@@ -1302,6 +1302,46 @@ describe("runtime", () => {
     expect(after[2]).toBe(before[1]);
   });
 
+  it("reuses keyed list nodes when a changed entry is reordered in the same update", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const items = cell([
+      { id: "a", label: "Alpha", value: 1 },
+      { id: "b", label: "Beta", value: 2 },
+      { id: "c", label: "Gamma", value: 3 },
+    ]);
+
+    mount(
+      () =>
+        h(
+          "ul",
+          null,
+          list(
+            () => get(items),
+            (item) => item.id,
+            (item) => h("li", { "data-id": item.id }, `${item.label}:${item.value}`),
+          ),
+        ),
+      root,
+    );
+
+    const before = Array.from(root.querySelectorAll("li"));
+
+    set(items, [
+      { id: "a", label: "Alpha", value: 10 },
+      get(items)[2],
+      get(items)[1],
+    ]);
+    await flushMicrotask();
+
+    const after = Array.from(root.querySelectorAll("li"));
+    expect(after.map((entry) => entry.textContent)).toEqual(["Alpha:10", "Gamma:3", "Beta:2"]);
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[2]);
+    expect(after[2]).toBe(before[1]);
+  });
+
   it("avoids reinserting stable keyed list nodes when order does not change", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);

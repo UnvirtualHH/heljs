@@ -36,6 +36,9 @@ type EffectRunner = (() => void) & {
   deps: Set<Set<EffectRunner>>;
 };
 
+const EMPTY_CLEANUPS: Array<() => void> = [];
+const EMPTY_MOUNTS: Array<() => void> = [];
+
 export type Scope = {
   parent: Scope | null;
   cleanups: Array<() => void>;
@@ -118,7 +121,11 @@ function flushMountQueue(): void {
     }
 
     const mounts = scope.mounts;
-    scope.mounts = [];
+    scope.mounts = EMPTY_MOUNTS;
+
+    if (mounts.length === 0) {
+      continue;
+    }
 
     for (let i = 0; i < mounts.length; i += 1) {
       mounts[i]!();
@@ -247,8 +254,8 @@ export function useContext<T>(context: ContextDefinition<T>): T {
 export function createScope(): Scope {
   return {
     parent: activeScope,
-    cleanups: [],
-    mounts: [],
+    cleanups: EMPTY_CLEANUPS,
+    mounts: EMPTY_MOUNTS,
     active: true,
     mounted: false,
   };
@@ -256,6 +263,11 @@ export function createScope(): Scope {
 
 export function onScopeCleanup(fn: () => void): void {
   if (!activeScope || !activeScope.active) {
+    return;
+  }
+
+  if (activeScope.cleanups === EMPTY_CLEANUPS) {
+    activeScope.cleanups = [fn];
     return;
   }
 
@@ -268,6 +280,11 @@ export function onCleanup(fn: () => void): void {
 
 export function onMount(fn: () => void): void {
   if (!activeScope || !activeScope.active || activeScope.mounted) {
+    return;
+  }
+
+  if (activeScope.mounts === EMPTY_MOUNTS) {
+    activeScope.mounts = [fn];
     return;
   }
 
@@ -293,7 +310,11 @@ export function disposeScope(scope: Scope | null): void {
   scope.active = false;
 
   const cleanups = scope.cleanups;
-  scope.cleanups = [];
+  scope.cleanups = EMPTY_CLEANUPS;
+
+  if (cleanups.length === 0) {
+    return;
+  }
 
   for (let i = cleanups.length - 1; i >= 0; i -= 1) {
     cleanups[i]!();

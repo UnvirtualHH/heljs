@@ -8,8 +8,11 @@ export default defineConfig(({ isSsrBuild }) => ({
     environment: "happy-dom",
     include: [
       "src/framework/compiler/**/*.test.ts",
+      "src/framework/compiler/**/*.test.tsx",
       "src/framework/runtime/**/*.test.ts",
+      "src/framework/runtime/**/*.test.tsx",
       "src/framework/server/**/*.test.ts",
+      "src/framework/server/**/*.test.tsx",
     ],
   },
   benchmark: {
