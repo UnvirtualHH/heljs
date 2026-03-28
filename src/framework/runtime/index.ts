@@ -251,6 +251,25 @@ export function h(
     return renderComponent();
   }
 
+  if (!isHydrating()) {
+    const element = document.createElement(tag);
+    const deferredProps = props ? applyProps(element, props) : [];
+
+    if (children.length === 1 && isDirectTextChild(children[0])) {
+      element.textContent = String(children[0]);
+    } else {
+      for (const child of children) {
+        appendChild(element, child);
+      }
+    }
+
+    for (const run of deferredProps) {
+      run();
+    }
+
+    return element;
+  }
+
   const parent = currentHydrationFrame()?.parent ?? document;
   const claimed = claimHydrationNode(
     parent,
