@@ -34,6 +34,7 @@ const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } })
 
 type EffectRunner = (() => void) & {
   deps: Set<Set<EffectRunner>>;
+  disposed: boolean;
 };
 
 const EMPTY_CLEANUPS: Array<() => void> = [];
@@ -144,10 +145,25 @@ function flushQueue(): void {
     queue.clear();
 
     for (let i = 0; i < flushBuffer.length; i += 1) {
-      flushBuffer[i]!();
+      try {
+        flushBuffer[i]!();
+      } catch (error) {
+        reportEffectError(error);
+      }
     }
     flushBuffer.length = 0;
   }
+}
+
+function reportEffectError(error: unknown): void {
+  if (typeof reportError === "function") {
+    reportError(error);
+    return;
+  }
+
+  queueMicrotask(() => {
+    throw error;
+  });
 }
 
 function schedule(runner: EffectRunner): void {
@@ -291,7 +307,11 @@ export function onMount(fn: () => void): void {
   activeScope.mounts.push(fn);
 }
 
-export function runWithScope<T>(scope: Scope, fn: () => T): T {
+export function getActiveScope(): Scope | null {
+  return activeScope;
+}
+
+export function runWithScope<T>(scope: Scope | null, fn: () => T): T {
   const previous = activeScope;
   activeScope = scope;
 
@@ -490,23 +510,38 @@ export function set<T>(slot: Cell<T>, next: T): T {
 export function effect(fn: () => void): () => void {
   if (IS_DEV) runtimeStats.effectCreations += 1;
 
+  // Re-runs happen in a flush, outside the provider that mounted this effect.
+  const contextFrame = activeContextFrame;
+
   const runner = (() => {
+    if (runner.disposed) {
+      return;
+    }
+
     cleanup(runner);
     if (IS_DEV) runtimeStats.effectRuns += 1;
 
     const previous = activeEffect;
+    const previousContextFrame = activeContextFrame;
     activeEffect = runner;
+    activeContextFrame = contextFrame;
 
     try {
       fn();
     } finally {
       activeEffect = previous;
+      activeContextFrame = previousContextFrame;
     }
   }) as EffectRunner;
 
   runner.deps = new Set<Set<EffectRunner>>();
+  runner.disposed = false;
   runner();
-  const dispose = () => cleanup(runner);
+  const dispose = () => {
+    runner.disposed = true;
+    queue.delete(runner);
+    cleanup(runner);
+  };
   onScopeCleanup(dispose);
   return dispose;
 }
@@ -623,33 +658,32 @@ function unwrapControlFlowValue<T>(value: T): T {
 
 export function For<T>(rawProps: Record<string, unknown>): any {
   const props = rawProps as ForProps<T>;
-  const items = (unwrapControlFlowValue(props.each) ?? []) as T[];
+  const readItems = () => (unwrapControlFlowValue(props.each) ?? []) as T[];
   const render = props.children?.[0];
+  const renderItem = (typeof render === "function" ? render : (item: T) => item) as (item: T, index: number) => unknown;
 
-  if (items.length === 0) {
-    return unwrapControlFlowValue(props.fallback) ?? null;
+  const rows = props.key
+    ? list(readItems, props.key, renderItem)
+    : dynBlock(() => readItems().map((item, index) => renderItem(item, index)));
+
+  if (!("fallback" in props)) {
+    return rows;
   }
 
-  if (typeof render !== "function") {
-    return items;
-  }
-
-  const renderItem = render as (item: T, index: number) => unknown;
-
-  if (!props.key) {
-    return items.map((item, index) => renderItem(item, index));
-  }
-
-  return list(
-    () => items,
-    props.key,
-    renderItem,
+  return branch(
+    () => readItems().length === 0,
+    () => unwrapControlFlowValue(props.fallback) ?? null,
+    () => rows,
   );
 }
 
 export function Show(rawProps: Record<string, unknown>): any {
   const props = rawProps as ShowProps;
-  return unwrapControlFlowValue(props.when) ? props.children ?? null : unwrapControlFlowValue(props.fallback) ?? null;
+  return branch(
+    () => unwrapControlFlowValue(props.when),
+    () => props.children ?? null,
+    () => unwrapControlFlowValue(props.fallback) ?? null,
+  );
 }
 
 export function component<T extends (...args: any[]) => any>(fn: T): T {
@@ -660,6 +694,9 @@ export function component<T extends (...args: any[]) => any>(fn: T): T {
   });
   return fn;
 }
+
+component(For);
+component(Show);
 
 export {
   isAttrBinding,

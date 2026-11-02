@@ -158,6 +158,26 @@ export function isCommentNode(node: Node | null, data: string): node is Comment 
   return Boolean(node && node.nodeType === Node.COMMENT_NODE && (node as Comment).data === data);
 }
 
+// Blocks can directly contain other blocks, so markers have to be matched by depth.
+export function findBlockEnd(start: Comment): Comment | null {
+  let depth = 0;
+  let cursor = start.nextSibling;
+
+  while (cursor) {
+    if (isCommentNode(cursor, BLOCK_START)) {
+      depth += 1;
+    } else if (isCommentNode(cursor, BLOCK_END)) {
+      if (depth === 0) {
+        return cursor;
+      }
+      depth -= 1;
+    }
+    cursor = cursor.nextSibling;
+  }
+
+  return null;
+}
+
 export function collectNodesBetween(start: Comment, end: Comment): Node[] {
   const nodes: Node[] = [];
   let current = start.nextSibling;

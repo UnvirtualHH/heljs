@@ -252,33 +252,32 @@ function unwrapControlFlowValue<T>(value: T): T {
 
 export function For<T>(rawProps: Record<string, unknown>): any {
   const props = rawProps as ForProps<T>;
-  const items = (unwrapControlFlowValue(props.each) ?? []) as T[];
+  const readItems = () => (unwrapControlFlowValue(props.each) ?? []) as T[];
   const render = props.children?.[0];
+  const renderItem = (typeof render === "function" ? render : (item: T) => item) as (item: T, index: number) => unknown;
 
-  if (items.length === 0) {
-    return unwrapControlFlowValue(props.fallback) ?? null;
+  const rows = props.key
+    ? list(readItems, props.key, renderItem)
+    : dynBlock(() => readItems().map((item, index) => renderItem(item, index)));
+
+  if (!("fallback" in props)) {
+    return rows;
   }
 
-  if (typeof render !== "function") {
-    return items;
-  }
-
-  const renderItem = render as (item: T, index: number) => unknown;
-
-  if (!props.key) {
-    return items.map((item, index) => renderItem(item, index));
-  }
-
-  return list(
-    () => items,
-    props.key,
-    renderItem,
+  return branch(
+    () => readItems().length === 0,
+    () => unwrapControlFlowValue(props.fallback) ?? null,
+    () => rows,
   );
 }
 
 export function Show(rawProps: Record<string, unknown>): any {
   const props = rawProps as ShowProps;
-  return unwrapControlFlowValue(props.when) ? props.children ?? null : unwrapControlFlowValue(props.fallback) ?? null;
+  return branch(
+    () => unwrapControlFlowValue(props.when),
+    () => props.children ?? null,
+    () => unwrapControlFlowValue(props.fallback) ?? null,
+  );
 }
 
 export function component<T extends (...args: any[]) => any>(fn: T): T {

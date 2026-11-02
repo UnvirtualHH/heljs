@@ -132,6 +132,122 @@ describe("compiler plugin", () => {
     expect(output).not.toContain("__dynBlock(() => props.visible ?");
   });
 
+  it("gives reactive ternary arms their own slots", () => {
+    const output = transform(`
+      export function Toggle() {
+        let a = false;
+        let b = false;
+        let items = [];
+        let count = 0;
+        return (
+          <section>
+            {a ? <i>A</i> : b ? <i>B</i> : <i>C</i>}
+            {a ? items.map((item) => <li>{item}</li>) : null}
+            {a ? <i>A</i> : count}
+          </section>
+        );
+      }
+    `);
+
+    const compact = output.replace(/\s+/g, " ");
+    expect(compact).toContain("() => __branch(() => __get(__cell_b_1)");
+    expect(compact).toContain("() => __dynBlock(() => __get(__cell_items_2).map(");
+    expect(compact).toContain("() => __text(__cell_count_3)");
+  });
+
+  it("does not wrap JSX ternary arms in extra slots", () => {
+    const output = transform(`
+      export function Toggle() {
+        let a = false;
+        let count = 0;
+        return <section>{a ? <p>{count}</p> : null}</section>;
+      }
+    `);
+
+    expect(output).toContain('() => __h("p", null, __text(__cell_count_1))');
+    expect(output).toContain("() => null");
+  });
+
+  it("passes imported list() calls straight to the keyed list slot", () => {
+    const output = transform(`
+      import { list as keyed } from "hel/runtime";
+      export function Rows() {
+        let items = [];
+        return <ul>{keyed(() => items, (item) => item.id, (item) => <li>{item.id}</li>)}</ul>;
+      }
+    `);
+
+    expect(output).not.toContain("__dynBlock");
+  });
+
+  it("keeps a local function named list as a normal block dynamic", () => {
+    const output = transform(`
+      function list(items) { return items.map((item) => <li>{item}</li>); }
+      export function Rows() {
+        let items = [];
+        return <ul>{list(items)}</ul>;
+      }
+    `);
+
+    expect(output).toContain("__dyn");
+  });
+
+  it("renders JSX props on components lazily but keeps them eager on elements", () => {
+    const output = transform(`
+      export function Panel() {
+        return <Show when={true} fallback={<u>hidden</u>}><b>shown</b></Show>;
+      }
+      export function Plain() {
+        return <div title={<u>hidden</u>} />;
+      }
+    `);
+
+    expect(output).toContain('fallback: __node(() => __h("u", null, "hidden"))');
+    expect(output).toContain('title: __h("u", null, "hidden")');
+  });
+
+  it("rewrites destructuring assignments to reactive lets", () => {
+    const output = transform(`
+      export function Swap() {
+        let a = 1;
+        let b = 2;
+        return <button onClick={() => { [a, b] = [b, a]; }}>x</button>;
+      }
+    `);
+
+    expect(output).toContain("__set(__cell_a_0,");
+    expect(output).toContain("__set(__cell_b_1,");
+  });
+
+  it("leaves destructuring assignments to ordinary variables alone", () => {
+    const output = transform(`
+      export function Swap() {
+        let a = 1;
+        return <button onClick={() => { let x; let y; [x, y] = [a, a]; }}>x</button>;
+      }
+    `);
+
+    expect(output).toContain("[x, y] = [__get(__cell_a_0), __get(__cell_a_0)]");
+  });
+
+  it("rewrites for-of and for-in targets that are reactive lets", () => {
+    const output = transform(`
+      export function Loop() {
+        let last = 0;
+        let key = "";
+        return (
+          <button onClick={() => {
+            for (last of [1, 2]) console.log(last);
+            for (key in {}) {}
+          }}>x</button>
+        );
+      }
+    `);
+
+    expect(output).toContain("__set(__cell_last_0,");
+    expect(output).toContain("__set(__cell_key_1,");
+  });
+
   it("fails loudly for reactive let destructuring in component scope", () => {
     const error = transformError(`
       export function Counter() {

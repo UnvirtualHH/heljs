@@ -41,6 +41,11 @@ export type ServerFragment = {
   children: Renderable[];
 };
 
+export type ServerHtml = {
+  type: "html";
+  html: string;
+};
+
 export type Renderable =
   | string
   | number
@@ -56,30 +61,53 @@ export type Renderable =
   | import("../shared").NodeFactory
   | Renderable[]
   | ServerElement
-  | ServerFragment;
+  | ServerFragment
+  | ServerHtml;
 
 function isContextProvider(tag: unknown): tag is ((props: any) => unknown) & { [CONTEXT_PROVIDER]: import("../shared").ContextDefinition<unknown> } {
   return Boolean(tag && typeof tag === "function" && (tag as unknown as Record<PropertyKey, unknown>)[CONTEXT_PROVIDER]);
 }
 
+// Nested JSX renders lazily, so a provider subtree has to be serialized while
+// the provider's context frame is still active.
 function renderContextChildren(children: Renderable[]): Renderable {
-  if (children.length === 0) {
-    return null;
-  }
-
-  return frag(...children.map(resolveContextChild));
+  return {
+    type: "html",
+    html: serializeValue(children),
+  };
 }
 
-function resolveContextChild(value: Renderable): Renderable {
-  if (isNodeFactory(value)) {
-    return resolveContextChild(value.read() as Renderable);
+function resolvePropValue(value: unknown): unknown {
+  if (isDynamic(value) || isNodeFactory(value) || isTemplateFactory(value)) {
+    return value.read();
   }
 
-  if (Array.isArray(value)) {
-    return value.map((entry) => resolveContextChild(entry as Renderable));
+  if (isTextBinding(value) || isAttrBinding(value)) {
+    return get(value.cell as Cell<unknown>);
   }
 
   return value;
+}
+
+function createComponentPropsView(
+  props: Record<string, unknown> | null,
+  children: unknown[],
+): Record<string, unknown> {
+  const view: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries({ ...(props ?? {}), children })) {
+    Object.defineProperty(view, key, {
+      enumerable: true,
+      configurable: false,
+      get: () => resolvePropValue(value),
+    });
+  }
+
+  return view;
+}
+
+function isServerHtml(value: unknown): value is ServerHtml {
+  return typeof value === "object" && value !== null && (value as { type?: unknown }).type === "html";
 }
 
 function isServerElement(value: unknown): value is ServerElement {
@@ -206,7 +234,14 @@ function serializeValue(value: unknown): string {
       return `<!--${BLOCK_START}-->${serializeValue(value.read())}<!--${BLOCK_END}-->`;
     }
 
-    return escapeHtml(normalizeTextValue(value.read()));
+    const text = value.read();
+
+    // The client turns a text slot holding an object into a block slot.
+    if (typeof text === "object" && text !== null) {
+      return `<!--${BLOCK_START}-->${serializeValue(text)}<!--${BLOCK_END}-->`;
+    }
+
+    return escapeHtml(normalizeTextValue(text));
   }
 
   if (isKeyedList(value)) {
@@ -219,6 +254,10 @@ function serializeValue(value: unknown): string {
 
   if (isServerFragment(value)) {
     return value.children.map((entry) => serializeValue(entry)).join("");
+  }
+
+  if (isServerHtml(value)) {
+    return value.html;
   }
 
   if (isServerElement(value)) {
@@ -249,7 +288,7 @@ export function h(
       return runWithContext(context, props?.value, () => renderContextChildren(children as Renderable[]));
     }
 
-    return tag({ ...(props ?? {}), children }) as Renderable;
+    return tag(createComponentPropsView(props, children)) as Renderable;
   }
 
   return {

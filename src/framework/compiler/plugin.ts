@@ -87,6 +87,7 @@ type DerivedInfo = {
 type ComponentName = string;
 
 const RUNTIME_SOURCE = "hel/runtime";
+const RUNTIME_IMPORT_SOURCES = new Set([RUNTIME_SOURCE, "hel"]);
 const COMPONENT_NAME = /^[A-Z]/;
 const EVENT_PROP = /^on[A-Z]/;
 const BINARY_ASSIGNMENTS = new Set([
@@ -103,6 +104,29 @@ const BINARY_ASSIGNMENTS = new Set([
   "^=",
   "&=",
 ]);
+
+// Calls to the runtime's list(). They manage their own reactivity, so they must
+// reach the keyed list slot directly instead of being wrapped in a block.
+const keyedListCalls = new WeakSet<t.Node>();
+
+function isRuntimeListCall(path: NodePath<t.CallExpression>): boolean {
+  const callee = path.node.callee;
+  if (!t.isIdentifier(callee)) {
+    return false;
+  }
+
+  const binding = path.scope.getBinding(callee.name);
+  if (!binding || !binding.path.isImportSpecifier()) {
+    return false;
+  }
+
+  const declaration = binding.path.parent;
+  return (
+    t.isImportDeclaration(declaration) &&
+    RUNTIME_IMPORT_SOURCES.has(declaration.source.value) &&
+    t.isIdentifier(binding.path.node.imported, { name: "list" })
+  );
+}
 
 function createUsedHelpers(): UsedHelpers {
   return {
@@ -172,13 +196,39 @@ function wrapBlockDynamic(expression: t.Expression, used: UsedHelpers): t.Expres
   return t.callExpression(t.identifier("__dynBlock"), [t.arrowFunctionExpression([], expression)]);
 }
 
-function wrapBranchDynamic(expression: t.ConditionalExpression, used: UsedHelpers): t.Expression {
+function wrapBranchArm(arm: t.Expression, used: UsedHelpers, analysis?: ComponentAnalysis): t.Expression {
+  if (t.isJSXElement(arm) || t.isJSXFragment(arm) || !hasReactiveDependency(arm, analysis)) {
+    return arm;
+  }
+
+  return wrapReactiveChild(arm, used, analysis);
+}
+
+function wrapBranchDynamic(
+  expression: t.ConditionalExpression,
+  used: UsedHelpers,
+  analysis?: ComponentAnalysis,
+): t.Expression {
   used.branch = true;
   return t.callExpression(t.identifier("__branch"), [
     t.arrowFunctionExpression([], expression.test),
-    t.arrowFunctionExpression([], expression.consequent),
-    t.arrowFunctionExpression([], expression.alternate),
+    t.arrowFunctionExpression([], wrapBranchArm(expression.consequent, used, analysis)),
+    t.arrowFunctionExpression([], wrapBranchArm(expression.alternate, used, analysis)),
   ]);
+}
+
+function wrapReactiveChild(expression: t.Expression, used: UsedHelpers, analysis?: ComponentAnalysis): t.Expression {
+  if (keyedListCalls.has(expression)) {
+    return expression;
+  }
+
+  if (!expressionProducesBlock(expression, analysis)) {
+    return wrapTextDynamic(expression, used);
+  }
+
+  return t.isConditionalExpression(expression)
+    ? wrapBranchDynamic(expression, used, analysis)
+    : wrapBlockDynamic(expression, used);
 }
 
 function wrapNodeFactory(expression: t.Expression, used: UsedHelpers): t.Expression {
@@ -827,16 +877,17 @@ function buildJsxChildren(
 
     if (t.isJSXExpressionContainer(child) && !t.isJSXEmptyExpression(child.expression)) {
       const normalized = normalizeExpression(child.expression, used, analysis);
+      if (keyedListCalls.has(normalized)) {
+        output.push(normalized);
+        continue;
+      }
+
       if (!hasReactiveDependency(normalized, analysis)) {
         output.push(expressionProducesBlock(normalized, analysis) ? wrapNodeFactory(normalized, used) : normalized);
         continue;
       }
 
-      if (expressionProducesBlock(normalized, analysis)) {
-        output.push(t.isConditionalExpression(normalized) ? wrapBranchDynamic(normalized, used) : wrapBlockDynamic(normalized, used));
-      } else {
-        output.push(wrapTextDynamic(normalized, used));
-      }
+      output.push(wrapReactiveChild(normalized, used, analysis));
     }
   }
 
@@ -846,7 +897,8 @@ function buildJsxChildren(
 function buildJsxProps(
   attributes: Array<t.JSXAttribute | t.JSXSpreadAttribute>,
   used: UsedHelpers,
-  analysis?: ComponentAnalysis,
+  analysis: ComponentAnalysis | undefined,
+  isComponentTag: boolean,
 ): t.Expression {
   if (attributes.length === 0) {
     return t.nullLiteral();
@@ -872,10 +924,15 @@ function buildJsxProps(
     } else if (t.isStringLiteral(attribute.value)) {
       value = attribute.value;
     } else if (t.isJSXExpressionContainer(attribute.value) && !t.isJSXEmptyExpression(attribute.value.expression)) {
-      const normalized = normalizeExpression(attribute.value.expression, used, analysis);
-      value = EVENT_PROP.test(name) || !hasReactiveDependency(normalized, analysis)
-        ? normalized
-        : wrapAttrDynamic(normalized, used);
+      const expression = attribute.value.expression;
+      const normalized = normalizeExpression(expression, used, analysis);
+      if (isComponentTag && (t.isJSXElement(expression) || t.isJSXFragment(expression))) {
+        value = wrapNodeFactory(normalized, used);
+      } else {
+        value = EVENT_PROP.test(name) || !hasReactiveDependency(normalized, analysis)
+          ? normalized
+          : wrapAttrDynamic(normalized, used);
+      }
     } else {
       value = t.booleanLiteral(true);
     }
@@ -889,9 +946,11 @@ function buildJsxProps(
 function buildJsxElement(element: t.JSXElement, used: UsedHelpers, analysis?: ComponentAnalysis): t.Expression {
   used.h = true;
 
+  const name = jsxNameToExpression(element.openingElement.name);
+
   return t.callExpression(t.identifier("__h"), [
-    jsxNameToExpression(element.openingElement.name),
-    buildJsxProps(element.openingElement.attributes, used, analysis),
+    name,
+    buildJsxProps(element.openingElement.attributes, used, analysis, !t.isStringLiteral(name)),
     ...buildJsxChildren(element.children, used, analysis),
   ]);
 }
@@ -900,6 +959,36 @@ function buildJsxFragment(fragment: t.JSXFragment, used: UsedHelpers, analysis?:
   used.frag = true;
 
   return t.callExpression(t.identifier("__frag"), buildJsxChildren(fragment.children, used, analysis));
+}
+
+function replaceReactivePatternTargets<T extends t.Node>(
+  node: T,
+  replace: (identifier: t.Identifier) => t.MemberExpression | null,
+): T | t.MemberExpression {
+  const visit = <N extends t.Node>(child: N) => replaceReactivePatternTargets(child, replace) as N;
+
+  if (t.isIdentifier(node)) {
+    return replace(node) ?? node;
+  }
+
+  if (t.isArrayPattern(node)) {
+    node.elements = node.elements.map((element) => element && visit(element));
+  } else if (t.isObjectPattern(node)) {
+    for (const property of node.properties) {
+      if (t.isRestElement(property)) {
+        property.argument = visit(property.argument);
+      } else {
+        property.shorthand = false;
+        property.value = visit(property.value);
+      }
+    }
+  } else if (t.isAssignmentPattern(node)) {
+    node.left = visit(node.left);
+  } else if (t.isRestElement(node)) {
+    node.argument = visit(node.argument);
+  }
+
+  return node;
 }
 
 function formatLocation(node: t.Node): string {
@@ -1438,8 +1527,72 @@ function transformComponent(
   const forcedBlockFunctionNames = new Set<string>();
 
   const rewriteVisitor: Visitor = {
+    ForXStatement(path: NodePath<t.ForXStatement>) {
+      const left = path.node.left;
+      if (t.isVariableDeclaration(left)) {
+        return;
+      }
+
+      const targetsReactive = Object.keys(t.getAssignmentIdentifiers(left)).some((name) =>
+        shouldRewrite(name, path, reactive),
+      );
+      if (!targetsReactive) {
+        return;
+      }
+
+      const item = path.scope.generateUidIdentifier("item");
+      const assign = t.expressionStatement(t.assignmentExpression("=", left, t.cloneNode(item)));
+      path.node.left = t.variableDeclaration("const", [t.variableDeclarator(item)]);
+      path.node.body = t.isBlockStatement(path.node.body)
+        ? t.blockStatement([assign, ...path.node.body.body])
+        : t.blockStatement([assign, path.node.body]);
+    },
+
     AssignmentExpression(path: NodePath<t.AssignmentExpression>) {
       const leftPath = path.get("left");
+      if (leftPath.isArrayPattern() || leftPath.isObjectPattern()) {
+        const box = path.scope.generateUidIdentifier("targets");
+        const writes: t.Statement[] = [];
+
+        replaceReactivePatternTargets(leftPath.node, (identifier) => {
+          const info = reactive.get(identifier.name);
+          if (!info || !shouldRewrite(identifier.name, path, reactive)) {
+            return null;
+          }
+
+          const slot = () => t.memberExpression(t.cloneNode(box), t.identifier(identifier.name));
+          writes.push(
+            t.expressionStatement(t.callExpression(t.identifier("__set"), [t.identifier(info.cellName), slot()])),
+          );
+          return slot();
+        });
+
+        if (writes.length === 0) {
+          return;
+        }
+
+        // Writes go through a temporary object so the pattern keeps its normal
+        // semantics. The value stays an argument so await and yield still work.
+        const value = path.scope.generateUidIdentifier("value");
+        used.set = true;
+        changed = true;
+        path.replaceWith(
+          t.callExpression(
+            t.arrowFunctionExpression(
+              [t.cloneNode(value)],
+              t.blockStatement([
+                t.variableDeclaration("const", [t.variableDeclarator(box, t.objectExpression([]))]),
+                t.expressionStatement(t.assignmentExpression("=", leftPath.node, t.cloneNode(value))),
+                ...writes,
+                t.returnStatement(t.cloneNode(value)),
+              ]),
+            ),
+            [path.node.right],
+          ),
+        );
+        return;
+      }
+
       if (!leftPath.isIdentifier()) {
         return;
       }
@@ -1739,6 +1892,14 @@ export function helMagicPlugin(): Plugin {
       const used = createUsedHelpers();
       let changed = false;
       const componentAnalyses = new WeakMap<t.Node, ComponentAnalysis>();
+
+      traverse(ast, {
+        CallExpression(path: NodePath<t.CallExpression>) {
+          if (isRuntimeListCall(path)) {
+            keyedListCalls.add(path.node);
+          }
+        },
+      });
 
       traverse(ast, {
         FunctionDeclaration(path: NodePath<t.FunctionDeclaration>) {
