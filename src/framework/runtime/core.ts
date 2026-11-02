@@ -35,8 +35,10 @@ const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } })
 type EffectRunner = (() => void) & {
   deps: Set<Set<EffectRunner>>;
   disposed: boolean;
+  invalidate?: () => void;
 };
 
+const MAX_FLUSH_CYCLES = 100;
 const EMPTY_CLEANUPS: Array<() => void> = [];
 const EMPTY_MOUNTS: Array<() => void> = [];
 
@@ -138,7 +140,19 @@ function flushQueue(): void {
   scheduled = false;
   if (IS_DEV) runtimeStats.flushCycles += 1;
 
+  let cycles = 0;
+
   while (queue.size > 0) {
+    cycles += 1;
+
+    if (cycles > MAX_FLUSH_CYCLES) {
+      queue.clear();
+      reportEffectError(
+        new Error(`[hel] Effects kept triggering each other for ${MAX_FLUSH_CYCLES} cycles. A slot or effect probably writes state it also reads.`),
+      );
+      break;
+    }
+
     for (const job of queue) {
       flushBuffer.push(job);
     }
@@ -167,6 +181,11 @@ function reportEffectError(error: unknown): void {
 }
 
 function schedule(runner: EffectRunner): void {
+  if (runner.invalidate) {
+    runner.invalidate();
+    return;
+  }
+
   if (!queue.has(runner)) {
     queue.add(runner);
     if (IS_DEV) runtimeStats.scheduledEffects += 1;
@@ -542,8 +561,81 @@ export function effect(fn: () => void): () => void {
     queue.delete(runner);
     cleanup(runner);
   };
-  onScopeCleanup(dispose);
+
+  // Without dependencies it can never run again, so there is nothing to clean
+  // up and the surrounding scope still counts as static.
+  if (runner.deps.size > 0) {
+    onScopeCleanup(dispose);
+  }
+
   return dispose;
+}
+
+// Handlers read derived values right after writing state, so invalidation is
+// synchronous and the recomputation happens on the next read.
+export function memo<T>(fn: () => T, lazy = false): () => T {
+  const subscribers = new Set<EffectRunner>();
+  const contextFrame = activeContextFrame;
+  let dirty = true;
+  let value: T;
+  let scope: Scope | null = null;
+
+  const node = (() => undefined) as EffectRunner;
+  node.deps = new Set<Set<EffectRunner>>();
+  node.disposed = false;
+  node.invalidate = () => {
+    if (!dirty) {
+      dirty = true;
+      notifySubscribers(subscribers);
+    }
+  };
+
+  const recompute = (): void => {
+    cleanup(node);
+    disposeScope(scope);
+    const nextScope = createScope();
+    scope = nextScope;
+
+    const previous = activeEffect;
+    const previousContextFrame = activeContextFrame;
+    activeEffect = node;
+    activeContextFrame = contextFrame;
+    dirty = false;
+
+    try {
+      value = runWithScope(nextScope, fn);
+    } catch (error) {
+      dirty = true;
+      throw error;
+    } finally {
+      activeEffect = previous;
+      activeContextFrame = previousContextFrame;
+    }
+  };
+
+  onScopeCleanup(() => {
+    node.disposed = true;
+    cleanup(node);
+    disposeScope(scope);
+  });
+
+  if (!lazy) {
+    recompute();
+  }
+
+  return () => {
+    if (node.disposed) {
+      return dirty ? untrack(fn) : value;
+    }
+
+    trackSubscribers(subscribers);
+
+    if (dirty) {
+      recompute();
+    }
+
+    return value;
+  };
 }
 
 export function node<T>(read: () => T): NodeFactory<T> {
@@ -659,7 +751,7 @@ function unwrapControlFlowValue<T>(value: T): T {
 export function For<T>(rawProps: Record<string, unknown>): any {
   const props = rawProps as ForProps<T>;
   const readItems = () => (unwrapControlFlowValue(props.each) ?? []) as T[];
-  const render = props.children?.[0];
+  const render = unwrapControlFlowValue(props.children?.[0]);
   const renderItem = (typeof render === "function" ? render : (item: T) => item) as (item: T, index: number) => unknown;
 
   const rows = props.key

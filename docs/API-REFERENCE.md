@@ -60,9 +60,22 @@ todos.push({ title: "Write docs", done: false });
 
 Current semantics:
 
-- local and intentionally coarse-grained
+- each property is tracked separately
 - deep object and array mutations trigger updates
-- not a full fine-grained Solid-style store graph
+- works in a component and at module level
+- `Date` and `Map` values are not supported yet
+
+#### `untrack(fn)`
+
+Runs `fn` without subscribing to what it reads. Use it for an explicit snapshot.
+
+```ts
+const initial = untrack(() => count);
+```
+
+#### `memo(fn, lazy?)`
+
+Returns a getter for a value that is computed once per change. The compiler emits this for a `const` that reads state, so app code rarely needs it directly. With `lazy`, the first computation waits for the first read.
 
 #### `cell(value)`, `get(cell)`, `set(cell, value)`, `effect(fn)`
 
@@ -319,19 +332,17 @@ export default defineConfig({
 
 Current responsibilities:
 
-- transform PascalCase components
-- rewrite reactive `let`
-- analyze local helper functions
+- transform components and `use*` functions, also in plain `.ts` files
+- rewrite reactive `let` and derived `const`
 - emit specialized runtime calls for text, attributes, blocks, and branches
 
 ## Current Constraints
 
 These constraints are part of the current public behavior and should be treated as real:
 
-- only PascalCase components are transformed
+- components are PascalCase functions, anonymous default exports containing JSX, or functions containing JSX passed to a call
 - reactive `let` destructuring is not supported
-- component parameters must currently be a simple identifier
-- `store(...)` is intentionally local and coarse-grained
+- component parameters must be a plain identifier or an object pattern
 - `list(...)` is the official keyed list story
 - the router is intentionally small
 

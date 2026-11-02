@@ -21,6 +21,7 @@ import {
   isTemplateFactory,
   isTextBinding,
   list,
+  memo,
   node,
   onCleanup,
   onMount,
@@ -56,6 +57,7 @@ export {
   get,
   getRuntimeStats,
   list,
+  memo,
   node,
   onCleanup,
   onMount,
@@ -66,6 +68,7 @@ export {
   store,
   text,
   tpl,
+  untrack,
   useContext,
 } from "./core";
 export type { Cell, RuntimeStats } from "./core";
@@ -212,8 +215,14 @@ function supportsReactiveComponentProps(tag: unknown): boolean {
 
 function renderComponentWithScope(render: () => unknown): unknown {
   const scope = createScope();
-  onScopeCleanup(() => disposeScope(scope));
-  const value = runWithScope(scope, render);
+  // Setup reads must not subscribe whichever effect happens to mount the component.
+  const value = runWithScope(scope, () => untrack(render));
+
+  // A stateless component leaves nothing to clean up, so its parent stays static.
+  if (scope.cleanups.length > 0 || scope.mounts.length > 0) {
+    onScopeCleanup(() => disposeScope(scope));
+  }
+
   return componentResult(value, scope);
 }
 
@@ -242,7 +251,10 @@ export function h(
       return renderComponentWithScope(() => tag(createComponentPropsView(props, children)));
     }
 
-    const renderComponent = () => renderComponentWithScope(() => tag(resolveComponentProps(props, children)));
+    const renderComponent = () => {
+      const resolvedProps = resolveComponentProps(props, children);
+      return renderComponentWithScope(() => tag(resolvedProps));
+    };
 
     if (hasReactiveComponentProps(props)) {
       return dynBlock(renderComponent);

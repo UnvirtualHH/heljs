@@ -33,6 +33,7 @@ const generate = unwrapCallable(generateModule) as (typeof import("@babel/genera
 
 type UsedHelpers = {
   cell: boolean;
+  memo: boolean;
   get: boolean;
   set: boolean;
   component: boolean;
@@ -58,18 +59,12 @@ type LocalFunctionPath = NodePath<t.FunctionDeclaration | t.FunctionExpression |
 type LocalFunctionInfo = {
   bindingIdentifier: t.Identifier;
   path: LocalFunctionPath;
-  readsReactive: boolean;
   returnsBlock: boolean;
   calls: Set<t.Identifier>;
 };
 
 type ComponentAnalysis = {
-  reactiveCellNames: Set<string>;
-  reactiveStoreNames: Set<string>;
-  reactiveFunctionNames: Set<string>;
   blockFunctionNames: Set<string>;
-  reactiveDerivedNames: Set<string>;
-  reactivePropNames: Set<string>;
 };
 
 type ComponentTransformResult = {
@@ -77,10 +72,19 @@ type ComponentTransformResult = {
   changed: boolean;
 };
 
+// alias: re-reads a member path or prop, nothing to cache.
+// memo: computed at the declaration, then once per change.
+// lazy: like memo, but first computed where it is read, since JSX must not
+// claim prerendered nodes before its position in the tree.
+type DerivedKind = "alias" | "memo" | "lazy";
+
+type ReactiveScopeKind = "component" | "hook";
+
 type DerivedInfo = {
   bindingIdentifier: t.Identifier;
   functionIdentifier: t.Identifier;
   returnsBlock: boolean;
+  kind: DerivedKind;
   factory: t.ArrowFunctionExpression;
 };
 
@@ -89,6 +93,10 @@ type ComponentName = string;
 const RUNTIME_SOURCE = "hel/runtime";
 const RUNTIME_IMPORT_SOURCES = new Set([RUNTIME_SOURCE, "hel"]);
 const COMPONENT_NAME = /^[A-Z]/;
+const HOOK_NAME = /^use[A-Z]/;
+const FACTORY_NAME = /^create[A-Z]/;
+const HOOK_DECLARATION = /\bfunction\s+use[A-Z]|\buse[A-Z]\w*\s*=/;
+const SETUP_CALLS = new Set(["store", "untrack", "memo", "list", "ref", "effect", "cell", "component"]);
 const EVENT_PROP = /^on[A-Z]/;
 const BINARY_ASSIGNMENTS = new Set([
   "+=",
@@ -131,6 +139,7 @@ function isRuntimeListCall(path: NodePath<t.CallExpression>): boolean {
 function createUsedHelpers(): UsedHelpers {
   return {
     cell: false,
+    memo: false,
     get: false,
     set: false,
     component: false,
@@ -149,6 +158,199 @@ function createUsedHelpers(): UsedHelpers {
 
 function isComponentName(name: string): boolean {
   return COMPONENT_NAME.test(name);
+}
+
+function isHookName(name: string): boolean {
+  return HOOK_NAME.test(name);
+}
+
+function stripTypeWrappers(node: t.Expression): t.Expression {
+  let current = node;
+
+  while (
+    t.isTSAsExpression(current) ||
+    t.isTSNonNullExpression(current) ||
+    t.isTSSatisfiesExpression(current) ||
+    t.isTSTypeAssertion(current)
+  ) {
+    current = current.expression;
+  }
+
+  return current;
+}
+
+// Calls that create something once. Running them again on a state change
+// would lose what they created, so they never become derived values.
+function isSetupCall(node: t.Node): boolean {
+  if (t.isNewExpression(node)) {
+    return true;
+  }
+
+  if (!t.isCallExpression(node) || !t.isIdentifier(node.callee)) {
+    return false;
+  }
+
+  const { name } = node.callee;
+  return SETUP_CALLS.has(name) || HOOK_NAME.test(name) || FACTORY_NAME.test(name);
+}
+
+function pushChildNodes(node: t.Node, stack: t.Node[]): void {
+  for (const key of t.VISITOR_KEYS[node.type] ?? []) {
+    const child = (node as unknown as Record<string, unknown>)[key];
+
+    if (Array.isArray(child)) {
+      for (let index = child.length - 1; index >= 0; index -= 1) {
+        const entry = child[index];
+        if (t.isNode(entry)) {
+          stack.push(entry);
+        }
+      }
+      continue;
+    }
+
+    if (t.isNode(child)) {
+      stack.push(child);
+    }
+  }
+}
+
+function isReadLikeExpression(node: t.Node): boolean {
+  return (
+    t.isCallExpression(node) ||
+    t.isOptionalCallExpression(node) ||
+    t.isMemberExpression(node) ||
+    t.isOptionalMemberExpression(node) ||
+    t.isTaggedTemplateExpression(node) ||
+    t.isNewExpression(node)
+  );
+}
+
+// The compiler cannot see across modules, so anything that might read state is
+// dynamic and the runtime finds the real dependencies. Runs on rewritten code,
+// where a reactive let is already a __get() call. Nested JSX has its own slots.
+function isDynamicExpression(root: t.Node): boolean {
+  const stack: t.Node[] = [root];
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+
+    if (t.isFunction(current) || t.isJSXElement(current) || t.isJSXFragment(current) || t.isTSType(current)) {
+      continue;
+    }
+
+    if (
+      t.isCallExpression(current) &&
+      (t.isIdentifier(current.callee, { name: "__h" }) || t.isIdentifier(current.callee, { name: "__frag" }))
+    ) {
+      continue;
+    }
+
+    if (isReadLikeExpression(current)) {
+      return true;
+    }
+
+    if (t.isObjectProperty(current) && !current.computed) {
+      stack.push(current.value);
+      continue;
+    }
+
+    pushChildNodes(current, stack);
+  }
+
+  return false;
+}
+
+// The same rule for code that has not been rewritten yet, where reactive
+// bindings are still plain identifiers.
+function expressionReadsState(root: t.Node, isReactiveIdentifier: (name: string) => boolean): boolean {
+  const stack: t.Node[] = [root];
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+
+    if (
+      t.isFunction(current) ||
+      t.isJSXElement(current) ||
+      t.isJSXFragment(current) ||
+      t.isTSType(current) ||
+      isSetupCall(current)
+    ) {
+      continue;
+    }
+
+    if (isReadLikeExpression(current)) {
+      return true;
+    }
+
+    if (t.isIdentifier(current)) {
+      if (isReactiveIdentifier(current.name)) {
+        return true;
+      }
+      continue;
+    }
+
+    if (t.isObjectProperty(current) && !current.computed) {
+      stack.push(current.value);
+      continue;
+    }
+
+    pushChildNodes(current, stack);
+  }
+
+  return false;
+}
+
+function containsJsx(root: t.Node): boolean {
+  const stack: t.Node[] = [root];
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+
+    if (t.isJSXElement(current) || t.isJSXFragment(current)) {
+      return true;
+    }
+
+    pushChildNodes(current, stack);
+  }
+
+  return false;
+}
+
+function isMemberPath(node: t.Node): boolean {
+  if (t.isIdentifier(node)) {
+    return true;
+  }
+
+  if (!t.isMemberExpression(node) && !t.isOptionalMemberExpression(node)) {
+    return false;
+  }
+
+  if (node.computed && !t.isStringLiteral(node.property) && !t.isNumericLiteral(node.property)) {
+    return false;
+  }
+
+  return isMemberPath(node.object);
+}
+
+function classifyConstInitializer(
+  initializer: t.Expression,
+  isReactiveIdentifier: (name: string) => boolean,
+): DerivedKind | null {
+  const node = stripTypeWrappers(initializer);
+
+  if (t.isFunction(node) || isSetupCall(node)) {
+    return null;
+  }
+
+  if (containsJsx(node)) {
+    return "lazy";
+  }
+
+  if (!t.isIdentifier(node) && isMemberPath(node)) {
+    return "alias";
+  }
+
+  return expressionReadsState(node, isReactiveIdentifier) ? "memo" : null;
 }
 
 function shouldRewrite(name: string, path: NodePath, reactive: Map<string, ReactiveInfo>): boolean {
@@ -197,7 +399,7 @@ function wrapBlockDynamic(expression: t.Expression, used: UsedHelpers): t.Expres
 }
 
 function wrapBranchArm(arm: t.Expression, used: UsedHelpers, analysis?: ComponentAnalysis): t.Expression {
-  if (t.isJSXElement(arm) || t.isJSXFragment(arm) || !hasReactiveDependency(arm, analysis)) {
+  if (t.isJSXElement(arm) || t.isJSXFragment(arm) || !isDynamicExpression(arm)) {
     return arm;
   }
 
@@ -300,7 +502,6 @@ function registerLocalFunction(
   localFunctions.set(bindingIdentifier, {
     bindingIdentifier,
     path,
-    readsReactive: false,
     returnsBlock: false,
     calls: new Set<t.Identifier>(),
   });
@@ -365,14 +566,10 @@ function functionContainsBlockSyntax(path: LocalFunctionPath): boolean {
   return found;
 }
 
-function analyzeLocalFunctions(
+function analyzeBlockFunctions(
   functionPath: NodePath<t.FunctionDeclaration | t.FunctionExpression | t.ArrowFunctionExpression>,
-  reactive: Map<string, ReactiveInfo>,
-  reactiveStores: Map<string, t.Identifier>,
-  reactivePropNames: Set<string>,
-  reactivePropBindings: Map<string, t.Identifier>,
   derivedBindings: Map<string, DerivedInfo> = new Map(),
-): { reactiveFunctions: Set<t.Identifier>; blockFunctions: Set<t.Identifier> } {
+): Set<t.Identifier> {
   const localFunctions = collectLocalFunctions(functionPath);
 
   for (const info of localFunctions.values()) {
@@ -390,29 +587,10 @@ function analyzeLocalFunctions(
           return;
         }
 
-        if (shouldRewrite(path.node.name, path, reactive)) {
-          info.readsReactive = true;
-          return;
-        }
-
-        const storeBinding = reactiveStores.get(path.node.name);
-        const binding = path.scope.getBinding(path.node.name);
-        if (storeBinding && binding && binding.identifier === storeBinding) {
-          info.readsReactive = true;
-          return;
-        }
-
-        if (reactivePropNames.has(path.node.name) || isTrackedPropBinding(path, reactivePropBindings)) {
-          info.readsReactive = true;
-          return;
-        }
-
         const derivedInfo = derivedBindings.get(path.node.name);
-        if (derivedInfo && (!binding || binding.identifier === derivedInfo.bindingIdentifier)) {
-          info.readsReactive = true;
-          if (derivedInfo.returnsBlock) {
-            info.returnsBlock = true;
-          }
+        const binding = path.scope.getBinding(path.node.name);
+        if (derivedInfo?.returnsBlock && (!binding || binding.identifier === derivedInfo.bindingIdentifier)) {
+          info.returnsBlock = true;
         }
       },
 
@@ -428,24 +606,6 @@ function analyzeLocalFunctions(
         }
       },
     });
-  }
-
-  const reactiveFunctions = new Set<t.Identifier>();
-  let pendingReactive = true;
-
-  while (pendingReactive) {
-    pendingReactive = false;
-
-    for (const info of localFunctions.values()) {
-      if (reactiveFunctions.has(info.bindingIdentifier)) {
-        continue;
-      }
-
-      if (info.readsReactive || Array.from(info.calls).some((callee) => reactiveFunctions.has(callee))) {
-        reactiveFunctions.add(info.bindingIdentifier);
-        pendingReactive = true;
-      }
-    }
   }
 
   const blockFunctions = new Set<t.Identifier>();
@@ -466,161 +626,10 @@ function analyzeLocalFunctions(
     }
   }
 
-  return {
-    reactiveFunctions,
-    blockFunctions,
-  };
-}
-
-function isRuntimeReactiveRead(node: t.Node, analysis?: ComponentAnalysis): boolean {
-  if (!analysis || !t.isCallExpression(node) || !t.isIdentifier(node.callee, { name: "__get" })) {
-    return false;
-  }
-
-  if (node.arguments.length !== 1) {
-    return false;
-  }
-
-  const [argument] = node.arguments;
-  return t.isIdentifier(argument) && analysis.reactiveCellNames.has(argument.name);
-}
-
-function hasReactiveDependency(node: t.Expression, analysis?: ComponentAnalysis): boolean {
-  if (!analysis) {
-    return false;
-  }
-
-  if (t.isArrowFunctionExpression(node) || t.isFunctionExpression(node)) {
-    return false;
-  }
-
-  const stack: t.Node[] = [node];
-
-  while (stack.length > 0) {
-    const current = stack.pop()!;
-
-    if (isRuntimeReactiveRead(current, analysis)) {
-      return true;
-    }
-
-    if (t.isIdentifier(current) && analysis.reactiveStoreNames.has(current.name)) {
-      return true;
-    }
-
-    if (t.isIdentifier(current) && analysis.reactiveDerivedNames.has(current.name)) {
-      return true;
-    }
-
-    if (t.isIdentifier(current) && analysis.reactivePropNames.has(current.name)) {
-      return true;
-    }
-
-    if (
-      t.isCallExpression(current) &&
-      t.isIdentifier(current.callee) &&
-      analysis.reactiveFunctionNames.has(current.callee.name)
-    ) {
-      return true;
-    }
-
-    for (const key of t.VISITOR_KEYS[current.type] ?? []) {
-      const child = (current as unknown as Record<string, unknown>)[key];
-
-      if (Array.isArray(child)) {
-        for (let index = child.length - 1; index >= 0; index -= 1) {
-          const entry = child[index];
-          if (t.isNode(entry)) {
-            stack.push(entry);
-          }
-        }
-        continue;
-      }
-
-      if (t.isNode(child)) {
-        stack.push(child);
-      }
-    }
-  }
-
-  return false;
-}
-
-function expressionUsesTrackedValue(
-  path: NodePath<t.Expression>,
-  reactive: Map<string, ReactiveInfo>,
-  reactiveStores: Map<string, t.Identifier>,
-  reactiveProps: Set<string>,
-  reactivePropBindings: Map<string, t.Identifier>,
-  reactiveFunctions: Set<t.Identifier>,
-  reactiveDerived: Set<t.Identifier>,
-): boolean {
-  let found = false;
-
-  path.traverse({
-    Function(innerPath: NodePath<t.Function>) {
-      if (innerPath !== path) {
-        innerPath.skip();
-      }
-    },
-
-    Identifier(identifierPath: NodePath<t.Identifier>) {
-      if (found || !identifierPath.isReferencedIdentifier()) {
-        return;
-      }
-
-      if (reactiveProps.has(identifierPath.node.name) || isTrackedPropBinding(identifierPath, reactivePropBindings)) {
-        found = true;
-        identifierPath.stop();
-        return;
-      }
-
-      if (shouldRewrite(identifierPath.node.name, identifierPath, reactive)) {
-        found = true;
-        identifierPath.stop();
-        return;
-      }
-
-      const storeBinding = reactiveStores.get(identifierPath.node.name);
-      const binding = identifierPath.scope.getBinding(identifierPath.node.name);
-      if (storeBinding && binding && binding.identifier === storeBinding) {
-        found = true;
-        identifierPath.stop();
-        return;
-      }
-
-      const derivedBinding = binding && t.isIdentifier(binding.identifier) ? binding.identifier : null;
-      if (derivedBinding && reactiveDerived.has(derivedBinding)) {
-        found = true;
-        identifierPath.stop();
-      }
-    },
-
-    CallExpression(callPath: NodePath<t.CallExpression>) {
-      if (found) {
-        return;
-      }
-
-      const calleePath = callPath.get("callee");
-      if (!calleePath.isIdentifier()) {
-        return;
-      }
-
-      const binding = calleePath.scope.getBinding(calleePath.node.name);
-      if (binding && t.isIdentifier(binding.identifier) && reactiveFunctions.has(binding.identifier)) {
-        found = true;
-        callPath.stop();
-      }
-    },
-  });
-
-  return found;
+  return blockFunctions;
 }
 
 function expressionProducesBlock(node: t.Expression, analysis?: ComponentAnalysis): boolean {
-  if (!analysis) {
-    return false;
-  }
-
   if (t.isArrowFunctionExpression(node) || t.isFunctionExpression(node)) {
     return false;
   }
@@ -646,7 +655,7 @@ function expressionProducesBlock(node: t.Expression, analysis?: ComponentAnalysi
       }
 
       const calleeName = getLooseIdentifierName(callee);
-      if (calleeName && analysis.blockFunctionNames.has(calleeName)) {
+      if (calleeName && analysis?.blockFunctionNames.has(calleeName)) {
         return true;
       }
 
@@ -852,7 +861,7 @@ function buildJsxChildren(
 
     if (t.isJSXSpreadChild(child)) {
       const normalized = normalizeExpression(child.expression, used, analysis);
-      if (!hasReactiveDependency(normalized, analysis)) {
+      if (!isDynamicExpression(normalized)) {
         output.push(expressionProducesBlock(normalized, analysis) ? wrapNodeFactory(normalized, used) : normalized);
         continue;
       }
@@ -882,7 +891,7 @@ function buildJsxChildren(
         continue;
       }
 
-      if (!hasReactiveDependency(normalized, analysis)) {
+      if (!isDynamicExpression(normalized)) {
         output.push(expressionProducesBlock(normalized, analysis) ? wrapNodeFactory(normalized, used) : normalized);
         continue;
       }
@@ -929,7 +938,7 @@ function buildJsxProps(
       if (isComponentTag && (t.isJSXElement(expression) || t.isJSXFragment(expression))) {
         value = wrapNodeFactory(normalized, used);
       } else {
-        value = EVENT_PROP.test(name) || !hasReactiveDependency(normalized, analysis)
+        value = EVENT_PROP.test(name) || name === "ref" || !isDynamicExpression(normalized)
           ? normalized
           : wrapAttrDynamic(normalized, used);
       }
@@ -1001,19 +1010,6 @@ function formatLocation(node: t.Node): string {
 
 function compilerError(id: string, componentName: ComponentName, node: t.Node, message: string): never {
   throw new Error(`[hel] ${id}${formatLocation(node)} in ${componentName}: ${message}`);
-}
-
-function isTrackedPropBinding(
-  path: NodePath<t.Identifier>,
-  reactivePropBindings: Map<string, t.Identifier>,
-): boolean {
-  const bindingIdentifier = reactivePropBindings.get(path.node.name);
-  if (!bindingIdentifier) {
-    return false;
-  }
-
-  const binding = path.scope.getBinding(path.node.name);
-  return Boolean(binding && binding.identifier === bindingIdentifier);
 }
 
 function createPropAccessExpression(
@@ -1090,6 +1086,7 @@ function collectPropDerivedBindings(
         bindingIdentifier: entry.value,
         functionIdentifier: createFunctionIdentifier(),
         returnsBlock: propertyName === "children" || entry.value.name === "children",
+        kind: "alias",
         factory: t.arrowFunctionExpression([], accessExpression),
       });
       continue;
@@ -1101,6 +1098,7 @@ function collectPropDerivedBindings(
         bindingIdentifier: entry.value.left,
         functionIdentifier: createFunctionIdentifier(),
         returnsBlock: propertyName === "children" || entry.value.left.name === "children",
+        kind: "alias",
         factory: t.arrowFunctionExpression(
           [],
           t.blockStatement([
@@ -1176,31 +1174,65 @@ function collectPropDerivedBindings(
   return output;
 }
 
+function rewriteHookReturns(
+  functionPath: NodePath<t.FunctionDeclaration | t.FunctionExpression | t.ArrowFunctionExpression>,
+  readsState: (node: t.Node) => boolean,
+  id: string,
+  hookName: string,
+): void {
+  functionPath.traverse({
+    Function(path: NodePath<t.Function>) {
+      path.skip();
+    },
+
+    ReturnStatement(path: NodePath<t.ReturnStatement>) {
+      const argument = path.node.argument ? stripTypeWrappers(path.node.argument) : null;
+
+      if (t.isIdentifier(argument) && readsState(argument)) {
+        compilerError(id, hookName, argument, "returning a reactive value directly would freeze it. Return an object or a function instead.");
+      }
+
+      if (t.isArrayExpression(argument) && argument.elements.some((element) => element && readsState(element))) {
+        compilerError(id, hookName, argument, "returning reactive values in an array would freeze them. Return an object instead.");
+      }
+
+      if (!t.isObjectExpression(argument)) {
+        return;
+      }
+
+      // A plain property would freeze the value at return time.
+      argument.properties = argument.properties.map((property) => {
+        if (!t.isObjectProperty(property) || property.computed || !t.isExpression(property.value) || !readsState(property.value)) {
+          return property;
+        }
+
+        return t.objectMethod(
+          "get",
+          t.cloneNode(property.key as t.Identifier),
+          [],
+          t.blockStatement([t.returnStatement(property.value)]),
+        );
+      });
+    },
+  });
+}
+
 function transformComponent(
   functionPath: NodePath<t.FunctionDeclaration | t.FunctionExpression | t.ArrowFunctionExpression>,
   used: UsedHelpers,
   id: string,
   componentName: ComponentName,
+  kind: ReactiveScopeKind = "component",
 ): ComponentTransformResult {
   const bodyPath = functionPath.get("body");
   if (!bodyPath.isBlockStatement()) {
     return {
-      analysis: {
-        reactiveCellNames: new Set<string>(),
-        reactiveStoreNames: new Set<string>(),
-        reactiveFunctionNames: new Set<string>(),
-        blockFunctionNames: new Set<string>(),
-        reactiveDerivedNames: new Set<string>(),
-        reactivePropNames: new Set<string>(),
-      },
+      analysis: { blockFunctionNames: new Set<string>() },
       changed: false,
     };
   }
 
   const reactive = new Map<string, ReactiveInfo>();
-  const reactiveStores = new Map<string, t.Identifier>();
-  const reactivePropNames = new Set<string>();
-  const reactivePropBindings = new Map<string, t.Identifier>();
   let changed = false;
   let cellCounter = 0;
   let derivedCounter = 0;
@@ -1208,19 +1240,20 @@ function transformComponent(
 
   const derivedBindings = new Map<string, DerivedInfo>();
 
-  for (let index = 0; index < functionPath.node.params.length; index += 1) {
+  const isReactiveIdentifier = (name: string, scope: NodePath["scope"]): boolean => {
+    const bindingIdentifier = reactive.get(name)?.bindingIdentifier ?? derivedBindings.get(name)?.bindingIdentifier;
+    return Boolean(bindingIdentifier && scope.getBinding(name)?.identifier === bindingIdentifier);
+  };
+
+  for (let index = 0; kind === "component" && index < functionPath.node.params.length; index += 1) {
     const parameter = functionPath.node.params[index]!;
     if (t.isIdentifier(parameter)) {
-      reactivePropNames.add(parameter.name);
-      reactivePropBindings.set(parameter.name, parameter);
       continue;
     }
 
     if (t.isObjectPattern(parameter)) {
       const propsIdentifier = functionPath.scope.generateUidIdentifier("props");
       functionPath.node.params[index] = propsIdentifier;
-      reactivePropNames.add(propsIdentifier.name);
-      reactivePropBindings.set(propsIdentifier.name, propsIdentifier);
       const derivedProps = collectPropDerivedBindings(
         parameter,
         t.identifier(propsIdentifier.name),
@@ -1231,7 +1264,6 @@ function transformComponent(
 
       for (const derived of derivedProps) {
         derivedBindings.set(derived.bindingIdentifier.name, derived);
-        reactivePropBindings.set(derived.bindingIdentifier.name, derived.bindingIdentifier);
         parameterPrelude.push(
           t.variableDeclaration("const", [
             t.variableDeclarator(derived.functionIdentifier, derived.factory),
@@ -1256,18 +1288,6 @@ function transformComponent(
 
   for (const statementPath of bodyPath.get("body")) {
     if (!statementPath.isVariableDeclaration({ kind: "let" })) {
-      if (statementPath.isVariableDeclaration()) {
-        for (const declaration of statementPath.node.declarations) {
-          if (
-            t.isIdentifier(declaration.id) &&
-            declaration.init &&
-            t.isCallExpression(declaration.init) &&
-            t.isIdentifier(declaration.init.callee, { name: "store" })
-          ) {
-            reactiveStores.set(declaration.id.name, declaration.id);
-          }
-        }
-      }
       continue;
     }
 
@@ -1304,16 +1324,24 @@ function transformComponent(
 
     for (const declarationPath of statementPath.get("declarations")) {
       const idPath = declarationPath.get("id");
-      const initPath = declarationPath.get("init");
+      const init = declarationPath.node.init ? stripTypeWrappers(declarationPath.node.init) : null;
 
-      if (!idPath.isObjectPattern() || !initPath.isIdentifier() || !reactivePropBindings.has(initPath.node.name)) {
+      if (!idPath.isObjectPattern() || !init || !(isMemberPath(init) || (isSetupCall(init) && t.isCallExpression(init) && t.isIdentifier(init.callee) && isHookName(init.callee.name)))) {
         untouched.push(declarationPath.node);
         continue;
       }
 
+      let source: t.Expression = t.cloneNode(init, true, true);
+
+      if (!isMemberPath(init)) {
+        const hookResult = functionPath.scope.generateUidIdentifier("hook");
+        replacements.push(t.variableDeclaration("const", [t.variableDeclarator(hookResult, init)]));
+        source = t.identifier(hookResult.name);
+      }
+
       const derivedProps = collectPropDerivedBindings(
         idPath.node,
-        t.identifier(initPath.node.name),
+        source,
         () => t.identifier(`__prop_${derivedCounter++}`),
         id,
         componentName,
@@ -1321,7 +1349,6 @@ function transformComponent(
 
       for (const derived of derivedProps) {
         derivedBindings.set(derived.bindingIdentifier.name, derived);
-        reactivePropBindings.set(derived.bindingIdentifier.name, derived.bindingIdentifier);
         replacements.push(
           t.variableDeclaration("const", [
             t.variableDeclarator(derived.functionIdentifier, derived.factory),
@@ -1342,69 +1369,38 @@ function transformComponent(
     }
   }
 
-  const initialLocalFunctionAnalysis = analyzeLocalFunctions(
-    functionPath,
-    reactive,
-    reactiveStores,
-    reactivePropNames,
-    reactivePropBindings,
-  );
-  let reactiveFunctions = initialLocalFunctionAnalysis.reactiveFunctions;
-  let blockFunctions = initialLocalFunctionAnalysis.blockFunctions;
-  let pendingDerived = true;
+  const blockFunctions = analyzeBlockFunctions(functionPath);
 
-  while (pendingDerived) {
-    pendingDerived = false;
+  for (const statementPath of bodyPath.get("body")) {
+    if (!statementPath.isVariableDeclaration({ kind: "const" })) {
+      continue;
+    }
 
-    for (const statementPath of bodyPath.get("body")) {
-      if (!statementPath.isVariableDeclaration({ kind: "const" })) {
+    for (const declarationPath of statementPath.get("declarations")) {
+      const idPath = declarationPath.get("id");
+      const initPath = declarationPath.get("init");
+      if (!idPath.isIdentifier() || !initPath.isExpression() || derivedBindings.has(idPath.node.name)) {
         continue;
       }
 
-      for (const declarationPath of statementPath.get("declarations")) {
-        const idPath = declarationPath.get("id");
-        const initPath = declarationPath.get("init");
-        if (!idPath.isIdentifier() || !initPath.isExpression()) {
-          continue;
-        }
-
-        if (derivedBindings.has(idPath.node.name)) {
-          continue;
-        }
-
-        if (initPath.isFunctionExpression() || initPath.isArrowFunctionExpression()) {
-          continue;
-        }
-
-        const reactiveDependency = expressionUsesTrackedValue(
-          initPath,
-          reactive,
-          reactiveStores,
-          reactivePropNames,
-          reactivePropBindings,
-          reactiveFunctions,
-          new Set(Array.from(derivedBindings.values(), (entry) => entry.bindingIdentifier)),
-        );
-
-        if (!reactiveDependency) {
-          continue;
-        }
-
-        derivedBindings.set(idPath.node.name, {
-          bindingIdentifier: idPath.node,
-          functionIdentifier: t.identifier(`__derived_${idPath.node.name}_${derivedCounter++}`),
-          returnsBlock: expressionProducesBlock(initPath.node, {
-            reactiveCellNames: new Set(Array.from(reactive.values(), (info) => info.cellName)),
-            reactiveStoreNames: new Set(Array.from(reactiveStores.keys())),
-            reactiveFunctionNames: new Set(Array.from(reactiveFunctions, (identifier) => identifier.name)),
-            blockFunctionNames: new Set(Array.from(blockFunctions, (identifier) => identifier.name)),
-            reactiveDerivedNames: new Set(Array.from(derivedBindings.keys())),
-            reactivePropNames,
-          }),
-          factory: t.arrowFunctionExpression([], initPath.node),
-        });
-        pendingDerived = true;
+      const derivedKind = classifyConstInitializer(initPath.node, (name) =>
+        isReactiveIdentifier(name, initPath.scope),
+      );
+      if (!derivedKind) {
+        continue;
       }
+
+      derivedBindings.set(idPath.node.name, {
+        bindingIdentifier: idPath.node,
+        functionIdentifier: t.identifier(`__derived_${idPath.node.name}_${derivedCounter++}`),
+        returnsBlock:
+          derivedKind === "lazy" ||
+          expressionProducesBlock(initPath.node, {
+            blockFunctionNames: new Set(Array.from(blockFunctions, (identifier) => identifier.name)),
+          }),
+        factory: t.arrowFunctionExpression([], initPath.node),
+        kind: derivedKind,
+      });
     }
   }
 
@@ -1425,16 +1421,25 @@ function transformComponent(
       }
 
       const derived = derivedBindings.get(idPath.node.name);
-      if (!derived) {
+      if (!derived || derived.bindingIdentifier !== idPath.node) {
         untouched.push(declarationPath.node);
         continue;
+      }
+
+      if (derived.kind !== "alias") {
+        used.memo = true;
       }
 
       replacements.push(
         t.variableDeclaration("const", [
           t.variableDeclarator(
             derived.functionIdentifier,
-            derived.factory,
+            derived.kind === "alias"
+              ? derived.factory
+              : t.callExpression(t.identifier("__memo"), [
+                  derived.factory,
+                  ...(derived.kind === "lazy" ? [t.booleanLiteral(true)] : []),
+                ]),
           ),
         ]),
       );
@@ -1452,16 +1457,17 @@ function transformComponent(
     }
   }
 
-  const finalLocalFunctionAnalysis = analyzeLocalFunctions(
-    functionPath,
-    reactive,
-    reactiveStores,
-    reactivePropNames,
-    reactivePropBindings,
-    derivedBindings,
-  );
-  reactiveFunctions = finalLocalFunctionAnalysis.reactiveFunctions;
-  blockFunctions = finalLocalFunctionAnalysis.blockFunctions;
+  const finalBlockFunctions = analyzeBlockFunctions(functionPath, derivedBindings);
+
+  if (kind === "hook") {
+    rewriteHookReturns(
+      functionPath,
+      (node) => expressionReadsState(node, (name) => isReactiveIdentifier(name, bodyPath.scope)),
+      id,
+      componentName,
+    );
+    changed = true;
+  }
 
   for (const statementPath of bodyPath.get("body")) {
     if (!statementPath.isVariableDeclaration({ kind: "let" })) {
@@ -1510,15 +1516,10 @@ function transformComponent(
     }
   }
 
-  if (reactive.size === 0 && reactiveStores.size === 0 && derivedBindings.size === 0) {
+  if (reactive.size === 0 && derivedBindings.size === 0) {
     return {
       analysis: {
-        reactiveCellNames: new Set<string>(),
-        reactiveStoreNames: new Set<string>(),
-        reactiveFunctionNames: new Set<string>(),
-        blockFunctionNames: new Set<string>(),
-        reactiveDerivedNames: new Set(Array.from(derivedBindings.keys())),
-        reactivePropNames,
+        blockFunctionNames: new Set(Array.from(finalBlockFunctions, (identifier) => identifier.name)),
       },
       changed,
     };
@@ -1747,10 +1748,6 @@ function transformComponent(
           return;
         }
 
-        if (parentPath.isCallExpression() && parentPath.node.callee === path.node) {
-          return;
-        }
-
         path.replaceWith(t.callExpression(t.identifier(derivedInfo.functionIdentifier.name), []));
         changed = true;
         path.skip();
@@ -1784,21 +1781,13 @@ function transformComponent(
 
   return {
     analysis: {
-      reactiveCellNames: new Set(Array.from(reactive.values(), (info) => info.cellName)),
-      reactiveStoreNames: new Set(Array.from(reactiveStores.keys())),
-      reactiveFunctionNames: new Set([
-        ...Array.from(reactiveFunctions, (identifier) => identifier.name),
-        ...Array.from(derivedBindings.values(), (entry) => entry.functionIdentifier.name),
-      ]),
       blockFunctionNames: new Set([
-        ...Array.from(blockFunctions, (identifier) => identifier.name),
+        ...Array.from(finalBlockFunctions, (identifier) => identifier.name),
         ...Array.from(derivedBindings.values())
           .filter((entry) => entry.returnsBlock)
           .map((entry) => entry.functionIdentifier.name),
         ...Array.from(forcedBlockFunctionNames),
       ]),
-      reactiveDerivedNames: new Set(Array.from(derivedBindings.keys())),
-      reactivePropNames,
     },
     changed,
   };
@@ -1807,6 +1796,7 @@ function transformComponent(
 function injectRuntimeImport(ast: t.File, used: UsedHelpers): void {
   const requested: Array<{ imported: string; local: string; enabled: boolean }> = [
     { imported: "cell", local: "__cell", enabled: used.cell },
+    { imported: "memo", local: "__memo", enabled: used.memo },
     { imported: "get", local: "__get", enabled: used.get },
     { imported: "set", local: "__set", enabled: used.set },
     { imported: "component", local: "__component", enabled: used.component },
@@ -1875,23 +1865,46 @@ function findComponentAnalysis(
   return undefined;
 }
 
+function shouldTransform(code: string, id: string): boolean {
+  if (id.includes("node_modules")) {
+    return false;
+  }
+
+  if (/\.[jt]sx$/.test(id)) {
+    return true;
+  }
+
+  // Plain .ts files only matter for hooks. The framework's own sources define
+  // functions like useContext and must stay untouched.
+  return /\.ts$/.test(id) && !id.endsWith(".d.ts") && !id.includes("/src/framework/") && HOOK_DECLARATION.test(code);
+}
+
 export function helMagicPlugin(): Plugin {
   return {
     name: "hel-magic-plugin",
     enforce: "pre",
     transform(code, id) {
-      if (!/\.[jt]sx$/.test(id) || id.includes("node_modules")) {
+      if (!shouldTransform(code, id)) {
         return null;
       }
 
       const ast = parse(code, {
         sourceType: "module",
-        plugins: ["typescript", "jsx"],
+        plugins: id.endsWith(".ts") ? ["typescript"] : ["typescript", "jsx"],
       });
 
       const used = createUsedHelpers();
       let changed = false;
       const componentAnalyses = new WeakMap<t.Node, ComponentAnalysis>();
+      const warnedModuleLets = new Set<string>();
+      const warn = (message: string): void => {
+        const context = this as unknown as { warn?: (message: string) => void } | undefined;
+        if (typeof context?.warn === "function") {
+          context.warn(message);
+        } else {
+          console.warn(message);
+        }
+      };
 
       traverse(ast, {
         CallExpression(path: NodePath<t.CallExpression>) {
@@ -1899,11 +1912,40 @@ export function helMagicPlugin(): Plugin {
             keyedListCalls.add(path.node);
           }
         },
+
+        Identifier(path: NodePath<t.Identifier>) {
+          if (!path.isReferencedIdentifier() || warnedModuleLets.has(path.node.name)) {
+            return;
+          }
+
+          const binding = path.scope.getBinding(path.node.name);
+          if (
+            binding?.kind === "let" &&
+            binding.scope.path.isProgram() &&
+            path.findParent((parent) => parent.isJSXExpressionContainer())
+          ) {
+            warnedModuleLets.add(path.node.name);
+            warn(
+              `[hel] ${id}${formatLocation(path.node)}: module-level let "${path.node.name}" is read in JSX but is not reactive. Use store() or a use* function instead.`,
+            );
+          }
+        },
       });
 
       traverse(ast, {
         FunctionDeclaration(path: NodePath<t.FunctionDeclaration>) {
-          if (!path.node.id || !isComponentName(path.node.id.name)) {
+          if (!path.node.id) {
+            return;
+          }
+
+          if (isHookName(path.node.id.name)) {
+            const result = transformComponent(path, used, id, path.node.id.name, "hook");
+            componentAnalyses.set(path.node, result.analysis);
+            changed = true;
+            return;
+          }
+
+          if (!isComponentName(path.node.id.name)) {
             return;
           }
 
@@ -1915,35 +1957,80 @@ export function helMagicPlugin(): Plugin {
             ),
           );
           used.component = true;
-          if (result.changed) {
-            changed = true;
-          }
           changed = true;
         },
 
         VariableDeclarator(path: NodePath<t.VariableDeclarator>) {
-          if (!t.isIdentifier(path.node.id) || !isComponentName(path.node.id.name)) {
+          if (!t.isIdentifier(path.node.id) || !path.parentPath.isVariableDeclaration()) {
             return;
           }
 
-          if (!path.parentPath.isVariableDeclaration()) {
-            return;
-          }
-
+          const name = path.node.id.name;
           const initPath = path.get("init");
-          if (!initPath.isFunctionExpression() && !initPath.isArrowFunctionExpression()) {
+
+          if (isHookName(name) && (initPath.isFunctionExpression() || initPath.isArrowFunctionExpression())) {
+            const result = transformComponent(initPath, used, id, name, "hook");
+            componentAnalyses.set(initPath.node, result.analysis);
+            changed = true;
             return;
           }
 
-          const result = transformComponent(initPath, used, id, path.node.id.name);
-          componentAnalyses.set(initPath.node, result.analysis);
-          path.get("init").replaceWith(
-            t.callExpression(t.identifier("__component"), [path.node.init as t.Expression]),
+          if (!isComponentName(name)) {
+            return;
+          }
+
+          if (initPath.isFunctionExpression() || initPath.isArrowFunctionExpression()) {
+            const result = transformComponent(initPath, used, id, name);
+            componentAnalyses.set(initPath.node, result.analysis);
+            path.get("init").replaceWith(
+              t.callExpression(t.identifier("__component"), [path.node.init as t.Expression]),
+            );
+            used.component = true;
+            changed = true;
+            return;
+          }
+
+          // const Name = wrap(() => <div />)
+          if (initPath.isCallExpression() && !isSetupCall(initPath.node)) {
+            for (const argumentPath of initPath.get("arguments")) {
+              if (
+                (argumentPath.isFunctionExpression() || argumentPath.isArrowFunctionExpression()) &&
+                containsJsx(argumentPath.node)
+              ) {
+                const node = argumentPath.node;
+                const result = transformComponent(argumentPath, used, id, name);
+                componentAnalyses.set(node, result.analysis);
+                argumentPath.replaceWith(t.callExpression(t.identifier("__component"), [node]));
+                used.component = true;
+                changed = true;
+              }
+            }
+          }
+        },
+
+        ExportDefaultDeclaration(path: NodePath<t.ExportDefaultDeclaration>) {
+          const declarationPath = path.get("declaration");
+          const isAnonymous =
+            declarationPath.isArrowFunctionExpression() ||
+            declarationPath.isFunctionExpression() ||
+            (declarationPath.isFunctionDeclaration() && !declarationPath.node.id);
+
+          if (!isAnonymous || !containsJsx(declarationPath.node)) {
+            return;
+          }
+
+          const node = declarationPath.node as t.FunctionDeclaration | t.FunctionExpression | t.ArrowFunctionExpression;
+          const result = transformComponent(
+            declarationPath as NodePath<t.FunctionDeclaration | t.FunctionExpression | t.ArrowFunctionExpression>,
+            used,
+            id,
+            "default export",
+          );
+          componentAnalyses.set(node, result.analysis);
+          declarationPath.replaceWith(
+            t.callExpression(t.identifier("__component"), [t.toExpression(node) as t.Expression]),
           );
           used.component = true;
-          if (result.changed) {
-            changed = true;
-          }
           changed = true;
         },
       });

@@ -394,6 +394,165 @@ describe("compiler plugin", () => {
     expect(output).toContain("__dynText(() => props.selectedId)");
   });
 
+  it("treats const initializers by the same rule as JSX expressions", () => {
+    const output = transform(`
+      import { store, untrack } from "hel/runtime";
+      import { cart } from "./cart";
+      export function Panel(props) {
+        let count = 0;
+        const factor = 2;
+        const bare = count;
+        const expr = count * factor;
+        const viaCall = compute();
+        const alias = props.title;
+        const moduleRead = cart.total;
+        const element = <i>{count}</i>;
+        const state = store({ count });
+        const first = untrack(() => count);
+        const instance = new Thing(count);
+        const hook = useThing(count);
+        const made = createThing(count);
+        const callback = () => count;
+        return null;
+      }
+    `).replace(/\s+/g, " ");
+
+    expect(output).toContain("const factor = 2;");
+    expect(output).toContain("const __derived_bare_0 = __memo(() => __get(__cell_count_0))");
+    expect(output).toContain("const __derived_expr_1 = __memo(() => __get(__cell_count_0) * factor)");
+    expect(output).toContain("const __derived_viaCall_2 = __memo(() => compute())");
+    expect(output).toContain("const __derived_alias_3 = () => props.title");
+    expect(output).toContain("const __derived_moduleRead_4 = () => cart.total");
+    expect(output).toContain('const __derived_element_5 = __memo(() => __h("i", null, __text(__cell_count_0)), true)');
+    expect(output).toContain("const state = store(");
+    expect(output).toContain("const first = untrack(");
+    expect(output).toContain("const instance = new Thing(");
+    expect(output).toContain("const hook = useThing(");
+    expect(output).toContain("const made = createThing(");
+    expect(output).toContain("const callback = () =>");
+  });
+
+  it("makes unknown member reads and calls dynamic, plain identifiers static", () => {
+    const output = transform(`
+      export function Row({ label }) {
+        const plain = 1;
+        return <li title={config.title} data-id={plain} ref={setRef}>{cart.total}{format(plain)}{plain}{label}</li>;
+      }
+    `).replace(/\s+/g, " ");
+
+    expect(output).toContain("title: __dynAttr(() => config.title)");
+    expect(output).toContain('"data-id": plain');
+    expect(output).toContain("ref: setRef");
+    expect(output).toContain("__dynText(() => cart.total)");
+    expect(output).toContain("__dynText(() => format(plain))");
+    expect(output).toContain("__dynText(() => __prop_0())");
+    expect(output).toMatch(/format\(plain\)\), plain,/);
+  });
+
+  it("applies the same rule to JSX outside of components", () => {
+    const output = transform(`
+      export const row = (item) => <li>{item.title}</li>;
+    `);
+
+    expect(output).toContain("__dynText(() => item.title)");
+  });
+
+  it("compiles use* functions like components, without marking them as components", () => {
+    const output = transform(`
+      export function useCounter() {
+        let count = 0;
+        const doubled = count * 2;
+        function increment() { count++; }
+        return { count, doubled, increment, label: "x" };
+      }
+    `).replace(/\s+/g, " ");
+
+    expect(output).toContain("__cell(");
+    expect(output).toMatch(/get count\(\) ?\{ ?return __get\(__cell_count_0\);? ?\}/);
+    expect(output).toMatch(/get doubled\(\) ?\{ ?return __derived_doubled_0\(\);? ?\}/);
+    expect(output).toContain("increment,");
+    expect(output).toContain('label: "x"');
+    expect(output).not.toContain("__component");
+  });
+
+  it("fails loudly when a use* function would freeze reactive values", () => {
+    const direct = transformError(`
+      export function useCounter() {
+        let count = 0;
+        return count;
+      }
+    `);
+    const array = transformError(`
+      export function useCounter() {
+        let count = 0;
+        return [count, () => count++];
+      }
+    `);
+
+    expect(direct?.message).toContain("useCounter");
+    expect(direct?.message).toContain("would freeze");
+    expect(array?.message).toContain("in an array would freeze");
+  });
+
+  it("keeps aliases when destructuring the result of a use* function", () => {
+    const output = transform(`
+      export function Counter() {
+        const { count, increment } = useCounter();
+        return <button onClick={() => increment()}>{count}</button>;
+      }
+    `).replace(/\s+/g, " ");
+
+    expect(output).toContain("const _hook = useCounter()");
+    expect(output).toContain("const __prop_0 = () => _hook.count");
+    expect(output).toContain("__prop_1()()");
+    expect(output).toContain("__dynText(() => __prop_0())");
+  });
+
+  it("calls a destructured function prop through its alias", () => {
+    const output = transform(`
+      export function Save({ onSave }) {
+        return <button onClick={() => onSave(1)}>Save</button>;
+      }
+    `);
+
+    expect(output).toContain("__prop_0()(1)");
+  });
+
+  it("transforms use* functions in plain .ts files and skips everything else there", () => {
+    const run = (code: string, id: string) =>
+      (helMagicPlugin().transform as unknown as (code: string, id: string) => { code: string } | null).call({}, code, id);
+
+    const hook = "export function useCounter<T>(value: T) { let count = 0; return { count, value: value as T }; }";
+    expect(run(hook, "C:/app/src/counter.ts")?.code).toContain("__cell(");
+    expect(run("export function add(a: number) { let b = a; return b; }", "C:/app/src/math.ts")).toBeNull();
+    expect(run(hook, "C:/app/src/types.d.ts")).toBeNull();
+    expect(run(hook, "C:/repo/src/framework/runtime/core.ts")).toBeNull();
+  });
+
+  it("transforms anonymous default exports and wrapped components", () => {
+    expect(transform("export default () => { let c = 0; return <p>{c}</p>; };")).toContain("__cell(");
+    expect(transform("export default function () { let c = 0; return <p>{c}</p>; }")).toContain("__cell(");
+    expect(transform("const C = wrap(() => { let c = 0; return <p>{c}</p>; });")).toContain("__cell(");
+  });
+
+  it("warns when JSX reads a module-level let", () => {
+    const warnings: string[] = [];
+    const handler = helMagicPlugin().transform as unknown as (
+      this: { warn: (message: string) => void },
+      code: string,
+      id: string,
+    ) => unknown;
+
+    handler.call(
+      { warn: (message: string) => warnings.push(message) },
+      "let total = 0; export function Total() { return <p>{total}{total}</p>; }",
+      "Total.tsx",
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('module-level let "total"');
+  });
+
   it("rewrites reactive const derivations into internal derived helpers", () => {
     const output = transform(`
       export function Counter() {
@@ -403,7 +562,7 @@ describe("compiler plugin", () => {
       }
     `);
 
-    expect(output).toContain("const __derived_label_0 = () =>");
+    expect(output).toContain("const __derived_label_0 = __memo(() =>");
     expect(output).toContain("__get(__cell_count_0) % 2 === 0 ? \"even\" : \"odd\"");
     expect(output).toContain("__dynText(() => __derived_label_0())");
   });

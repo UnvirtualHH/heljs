@@ -54,6 +54,43 @@ afterEach(() => {
 });
 
 describe("compiled server output", () => {
+  it("computes a derived const only once while rendering", () => {
+    const calls = { value: 0 };
+    const source = `
+      function App() {
+        let count = 1;
+        const doubled = (__calls.value++, count * 2);
+        return <p>{doubled}|{doubled}</p>;
+      }
+    `;
+    const App = new Function(
+      "__calls",
+      "__runtime",
+      `${transform(source).replace(/import \{([^}]*)\} from "hel\/runtime";/, (_, names: string) => `const {${names.replaceAll(" as ", ": ")}} = __runtime;`)}\nreturn App;`,
+    )(calls, serverRuntime);
+
+    const html = serverRuntime.renderToString(() => serverRuntime.h(App, null));
+
+    expect(html).toContain("2|2");
+    expect(calls.value).toBe(1);
+  });
+
+  it("renders hook results and derived values", () => {
+    const html = renderOnServer(`
+      function useCounter() {
+        let count = 3;
+        const doubled = count * 2;
+        return { count, doubled };
+      }
+      function App() {
+        const { count, doubled } = useCounter();
+        return <p>{count}|{doubled}</p>;
+      }
+    `);
+
+    expect(html).toContain("3|6");
+  });
+
   it("renders the value of a reactive prop read as props.x", () => {
     const html = renderOnServer(`
       function Card(props) { return <h2>{props.title}</h2>; }
@@ -274,6 +311,69 @@ describe("compiled hydration", () => {
     await flush();
 
     expect(root.querySelector("em")?.textContent).toBe("provided");
+  });
+
+  it("hydrates a shared hook and a derived const without warnings and stays reactive", async () => {
+    const root = hydrateFromServer(`
+      function useCart() {
+        let items = [];
+        const count = items.length;
+        function add() { items = [...items, 1]; }
+        return { count, add };
+      }
+      function App() {
+        const cart = useCart();
+        const label = cart.count === 0 ? "empty" : "items: " + cart.count;
+        const badge = <em>{label}</em>;
+        return <button onClick={() => cart.add()}>{badge}</button>;
+      }
+    `);
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(root.textContent).toBe("empty");
+    const button = root.querySelector("button");
+
+    click(button);
+    await flush();
+
+    expect(root.querySelector("button")).toBe(button);
+    expect(root.textContent).toBe("items: 1");
+  });
+
+  it("does not claim prerendered nodes when a JSX const is declared early", () => {
+    const source = `
+      function App() {
+        const late = <i>late</i>;
+        return <main><b>first</b>{late}</main>;
+      }
+    `;
+    const root = document.createElement("div");
+    root.innerHTML = renderOnServer(source);
+    document.body.appendChild(root);
+    const first = root.querySelector("b");
+
+    clientRuntime.hydrate(() => clientRuntime.h(compile(source, clientRuntime, "App"), null), root);
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(root.querySelector("b")).toBe(first);
+  });
+
+  it("disposes a hidden ternary branch after hydration", async () => {
+    const root = hydrateFromServer(`
+      function App() {
+        let show = true;
+        return <div onClick={() => (show = !show)}>{show ? <b>{"on"}</b> : <i>off</i>}</div>;
+      }
+    `);
+    const bold = root.querySelector("b");
+
+    click(root.querySelector("div"));
+    await flush();
+    click(root.querySelector("div"));
+    await flush();
+
+    expect(root.querySelector("b")).not.toBe(bold);
+    expect(root.textContent).toBe("on");
   });
 
   // Still open: the server merges adjacent text, so the client finds one text

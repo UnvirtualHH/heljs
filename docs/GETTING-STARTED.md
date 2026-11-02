@@ -82,8 +82,9 @@ Important:
 
 - components must use PascalCase names
 - local reactive state is `let`
-- normal `const` helpers are fine
+- `const` values that read state stay up to date
 - there is no `signal()`, `effect()`, or `memo()` in user code
+- logic is shared through `use*` functions
 
 ## 5. Start the dev server
 
@@ -141,9 +142,7 @@ That is already implemented in [starter-ssr/vite.config.ts](C:/projects/hellscri
 ## Known Limits
 
 - reactive `let` destructuring is not implemented yet
-- component parameters currently must be a simple identifier
-- `list(...)` is the official keyed list story
-- `store(...)` is intentionally local and coarse-grained
+- `list(...)` and keyed `For` are the official keyed list story
 - the router is intentionally small: no nested routes, guards, or loader or action APIs
 
 ## Useful Next Documents

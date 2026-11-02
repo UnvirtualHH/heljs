@@ -41,7 +41,6 @@ import {
   cloneTemplate,
   insertNodeBefore,
   insertNodesBefore,
-  moveNodesBetween,
   removeNode,
   replaceNode,
   replaceNodesBetween,
@@ -62,12 +61,6 @@ type ListEntry<T> = {
 };
 
 const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
-
-type RetainedBlockBranch = {
-  signature: string;
-  holder: DocumentFragment;
-  scope: Scope;
-};
 
 // A scope with cleanups owns live effects or child components, so its nodes
 // cannot be swapped for structurally equal ones without losing those bindings.
@@ -148,44 +141,6 @@ function resolveComponentPropValue(value: unknown): unknown {
   }
 
   return value;
-}
-
-function getNodeSignature(node: Node): string {
-  if (node instanceof HTMLElement) {
-    return `element:${node.tagName}[${Array.from(node.childNodes, getNodeSignature).join("|")}]`;
-  }
-
-  if (node instanceof Text) {
-    return "text";
-  }
-
-  if (node instanceof Comment) {
-    return "comment";
-  }
-
-  return node.nodeName;
-}
-
-function getNodeListSignature(nodes: Node[]): string {
-  return nodes.map(getNodeSignature).join("|");
-}
-
-function containsRetainableMarker(node: Node): boolean {
-  if (isCommentNode(node, BLOCK_START) || isCommentNode(node, BLOCK_END)) {
-    return true;
-  }
-
-  for (const child of node.childNodes) {
-    if (containsRetainableMarker(child)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function shouldRetainBlockBranch(nodes: Node[]): boolean {
-  return nodes.some(containsRetainableMarker);
 }
 
 export function hasReactiveComponentProps(props: Record<string, unknown> | null): boolean {
@@ -337,26 +292,11 @@ function mountTextSlot(parent: Node, read: () => unknown): void {
 }
 
 function mountTextBinding(parent: Node, cell: Cell<unknown>): void {
-  const claimed = claimHydrationNode(parent, (node) => node.nodeType === Node.TEXT_NODE) as Text | null;
-  if (!claimed && currentHydrationFrame(parent)?.current) {
-    bailHydration(parent, "dynamic text");
-  }
-  const text = claimed ?? document.createTextNode("");
+  mountTextSlot(parent, () => get(cell));
+}
 
-  if (!claimed) {
-    appendNode(parent, text);
-  }
-
-  let previous = claimed ? text.data : "";
-  effect(() => {
-    const next = normalizeTextValue(get(cell));
-    if (next === previous) {
-      return;
-    }
-
-    previous = next;
-    text.data = next;
-  });
+function unwrapAttrValue(value: unknown): unknown {
+  return isDynamic(value) ? unwrapAttrValue(value.read()) : value;
 }
 
 function matchesHydratedProperty(element: HTMLElement, key: string, value: unknown): boolean {
@@ -528,23 +468,8 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
   let hydrated = startsHydrated;
   let currentNodes: Node[] = [];
   let contentScope: Scope | null = null;
-  let retainedBranch: RetainedBlockBranch | null = null;
 
-  onScopeCleanup(() => {
-    disposeScope(contentScope);
-    if (retainedBranch) {
-      disposeScope(retainedBranch.scope);
-      retainedBranch = null;
-    }
-  });
-
-  // Moves the visible content out of the document with its scope still alive,
-  // so nested slots keep updating and the branch can be shown again later.
-  const stashCurrentBranch = (signature: string): RetainedBlockBranch => {
-    const holder = document.createDocumentFragment();
-    moveNodesBetween(start, end, holder);
-    return { signature, holder, scope: contentScope! };
-  };
+  onScopeCleanup(() => disposeScope(contentScope));
 
   effect(() => {
     if (hydrated) {
@@ -562,71 +487,22 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
       return;
     }
 
-    if (!shouldRetainBlockBranch(currentNodes) && !retainedBranch) {
-      const wasStatic = isStaticScope(contentScope);
-      disposeScope(contentScope);
-      const nextScope = createScope();
-      contentScope = nextScope;
-      const nextNodes = runWithScope(nextScope, () => materializeNodes(read()));
-
-      if (wasStatic && isStaticScope(nextScope) && tryPatchNodeListInPlace(currentNodes, nextNodes)) {
-        currentNodes = currentNodes.slice();
-        return;
-      }
-
-      replaceBlockContent(start, end, currentNodes, nextNodes);
-      flushScopeMounts(nextScope);
-      currentNodes = nextNodes;
-      return;
-    }
-
+    const wasStatic = isStaticScope(contentScope);
+    disposeScope(contentScope);
     const nextScope = createScope();
+    contentScope = nextScope;
     const nextNodes = runWithScope(nextScope, () => materializeNodes(read()));
-    const liveNodes = collectNodesBetween(start, end);
-    const currentSignature = getNodeListSignature(liveNodes);
-    const nextSignature = getNodeListSignature(nextNodes);
 
-    if (currentSignature === nextSignature) {
-      // Same shape means a plain re-render, not a switch back to a hidden branch.
-      disposeScope(contentScope);
-      replaceBlockContent(start, end, liveNodes, nextNodes);
-    } else if (retainedBranch && retainedBranch.signature === nextSignature) {
-      disposeScope(nextScope);
-      const restored: RetainedBlockBranch = retainedBranch;
-
-      if (shouldRetainBlockBranch(liveNodes)) {
-        retainedBranch = stashCurrentBranch(currentSignature);
-      } else {
-        disposeScope(contentScope);
-        replaceNodesBetween(end.parentNode!, start, end, [], liveNodes.length);
-        retainedBranch = null;
-      }
-
-      currentNodes = Array.from(restored.holder.childNodes);
-      contentScope = restored.scope;
-      insertNodeBefore(end.parentNode!, restored.holder, end);
+    if (wasStatic && isStaticScope(nextScope) && tryPatchNodeListInPlace(currentNodes, nextNodes)) {
+      currentNodes = currentNodes.slice();
       return;
-    } else if (shouldRetainBlockBranch(liveNodes)) {
-      if (retainedBranch) {
-        disposeScope(retainedBranch.scope);
-      }
-      retainedBranch = stashCurrentBranch(currentSignature);
-      replaceNodesBetween(end.parentNode!, start, end, nextNodes, 0);
-    } else {
-      disposeScope(contentScope);
-      replaceBlockContent(start, end, liveNodes, nextNodes);
     }
 
+    replaceBlockContent(start, end, collectNodesBetween(start, end), nextNodes);
     flushScopeMounts(nextScope);
     currentNodes = nextNodes;
-    contentScope = nextScope;
   });
 }
-
-type BranchEntry = {
-  holder: DocumentFragment;
-  scope: Scope;
-};
 
 function mountBranchSlot(
   parent: Node,
@@ -639,37 +515,23 @@ function mountBranchSlot(
   const { start, end, hydrated: startsHydrated } = mountBlockMarkers(parent);
   let hydrated = startsHydrated;
   let activeKind: "consequent" | "alternate" | null = null;
-  const branches: Partial<Record<"consequent" | "alternate", BranchEntry>> = {};
+  let activeScope: Scope | null = null;
 
-  onScopeCleanup(() => {
-    for (const entry of Object.values(branches)) {
-      disposeScope(entry?.scope ?? null);
-    }
-  });
-
-  const materializeBranch = (kind: "consequent" | "alternate"): BranchEntry => {
-    const cached = branches[kind];
-    if (cached) {
-      return cached;
-    }
-
-    const entry: BranchEntry = {
-      holder: document.createDocumentFragment(),
-      scope: createScope(),
-    };
-    branches[kind] = entry;
-
-    const read = kind === "consequent" ? binding.consequent : binding.alternate;
-    runWithScope(entry.scope, () => untrack(() => appendChild(entry.holder, read())));
-    return entry;
-  };
+  onScopeCleanup(() => disposeScope(activeScope));
 
   effect(() => {
     const nextKind = binding.when() ? "consequent" : "alternate";
 
+    if (!hydrated && activeKind === nextKind) {
+      return;
+    }
+
+    const read = nextKind === "consequent" ? binding.consequent : binding.alternate;
+    const scope = createScope();
+    activeKind = nextKind;
+
     if (hydrated) {
-      const scope = createScope();
-      const read = nextKind === "consequent" ? binding.consequent : binding.alternate;
+      activeScope = scope;
       const blockFrame = openHydrationFrame(end.parentNode!, "branch", end);
       if (blockFrame) {
         blockFrame.current = start.nextSibling as ChildNode | null;
@@ -678,31 +540,23 @@ function mountBranchSlot(
       runWithScope(scope, () => untrack(() => appendChild(end.parentNode!, read())));
       flushScopeMounts(scope);
       closeHydrationFrame(blockFrame);
-
-      branches[nextKind] = {
-        holder: document.createDocumentFragment(),
-        scope,
-      };
-      activeKind = nextKind;
       hydrated = false;
       return;
     }
 
-    if (activeKind === nextKind) {
-      return;
-    }
+    disposeScope(activeScope);
+    activeScope = scope;
 
-    const nextEntry = materializeBranch(nextKind);
-
-    // The hidden branch keeps its scope and lives in its holder, where nested
-    // slots can go on updating until it is shown again.
-    if (activeKind) {
-      moveNodesBetween(start, end, branches[activeKind]!.holder);
-    }
-
-    insertNodeBefore(end.parentNode!, nextEntry.holder, end);
-    flushScopeMounts(nextEntry.scope);
-    activeKind = nextKind;
+    const holder = document.createDocumentFragment();
+    runWithScope(scope, () => untrack(() => appendChild(holder, read())));
+    replaceNodesBetween(
+      end.parentNode!,
+      start,
+      end,
+      Array.from(holder.childNodes),
+      collectNodesBetween(start, end).length,
+    );
+    flushScopeMounts(scope);
   });
 }
 
@@ -865,7 +719,7 @@ function mountAttrSlot(element: HTMLElement, key: string, read: () => unknown): 
   let hydrated = isHydrating();
 
   effect(() => {
-    const next = read();
+    const next = unwrapAttrValue(read());
 
     if (hydrated) {
       hydrated = false;

@@ -103,10 +103,9 @@ This used to be a weak point because broad `dynBlock(...)` behavior was too expe
 
 The major improvement in Hel came from:
 
-- branch retention for expensive marker-based branches
 - specialized branch slots instead of generic block handling for conditionals
 
-That is why this path moved from an obvious weakness to something close to naive DOM and clearly ahead of Vue and React in the current harness.
+Hidden branches used to be retained for this path. They are now disposed, because retention made lifecycle depend on syntax. In Chromium, toggling a branch with a keyed list went from 0.14 ms to between 0.16 and 0.20 ms with 20 rows, and from about 4.8 ms to between 4.8 and 6.7 ms with 1,000 rows. The comparison figures below predate this change.
 
 ## What the Compiler Already Optimizes
 

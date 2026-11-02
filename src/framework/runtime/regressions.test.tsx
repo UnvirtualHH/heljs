@@ -2,11 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cell,
   createContext,
-  dynBlock,
   effect,
   For,
   get,
-  h,
   list,
   mount,
   onCleanup,
@@ -153,7 +151,7 @@ describe("compiled JSX regressions", () => {
       expect(root.textContent).toBe("1");
     });
 
-    it("keeps reactive arms updating while hidden and shows the latest value on reopen", async () => {
+    it("shows the latest value when a hidden arm is reopened", async () => {
       const root = createRoot();
       let toggle: () => void = () => {};
       let add: () => void = () => {};
@@ -412,10 +410,10 @@ describe("compiled JSX regressions", () => {
       expect(root.textContent).toBe("a");
     });
 
-    it("disposes rows when the keyed list is dropped for good", async () => {
+    it("disposes rows when the keyed list leaves the tree", async () => {
       const root = createRoot();
       let cleaned = 0;
-      const mode = cell(0);
+      let hide: () => void = () => {};
       const items = [{ id: "a" }];
 
       function Row() {
@@ -425,30 +423,20 @@ describe("compiled JSX regressions", () => {
         return <li>row</li>;
       }
 
-      const rows = () => list(() => items, (item) => item.id, () => <Row />);
+      function Rows() {
+        let show = true;
+        hide = () => {
+          show = false;
+        };
+        return <div>{show && <ul>{list(() => items, (item) => item.id, () => <Row />)}</ul>}</div>;
+      }
 
-      // A block retains one hidden branch, so the first list is only dropped
-      // once a second one takes its place.
-      mount(
-        () =>
-          h(
-            "section",
-            null,
-            dynBlock(() => {
-              const current = get(mode);
-              return h(current === 0 ? "ul" : current === 1 ? "ol" : "menu", null, rows());
-            }),
-          ),
-        root,
-      );
+      mount(() => <Rows />, root);
       expect(root.querySelectorAll("li").length).toBe(1);
 
-      set(mode, 1);
+      hide();
       await flush();
-      expect(cleaned).toBe(0);
 
-      set(mode, 2);
-      await flush();
       expect(cleaned).toBe(1);
     });
   });

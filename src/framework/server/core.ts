@@ -50,13 +50,41 @@ export function store<T extends object>(value: T): T {
   return value;
 }
 
+let writeVersion = 0;
+
 export function get<T>(slot: Cell<T>): T {
   return slot.value;
 }
 
 export function set<T>(slot: Cell<T>, next: T): T {
   slot.value = next;
+  writeVersion += 1;
   return next;
+}
+
+export function untrack<T>(fn: () => T): T {
+  return fn();
+}
+
+// Nothing subscribes on the server, so a write anywhere invalidates the value.
+export function memo<T>(fn: () => T, lazy = false): () => T {
+  let computedAt = -1;
+  let value: T;
+
+  const read = (): T => {
+    if (computedAt !== writeVersion) {
+      value = fn();
+      computedAt = writeVersion;
+    }
+
+    return value;
+  };
+
+  if (!lazy) {
+    read();
+  }
+
+  return read;
 }
 
 export function effect(fn: () => void): () => void {
@@ -253,7 +281,7 @@ function unwrapControlFlowValue<T>(value: T): T {
 export function For<T>(rawProps: Record<string, unknown>): any {
   const props = rawProps as ForProps<T>;
   const readItems = () => (unwrapControlFlowValue(props.each) ?? []) as T[];
-  const render = props.children?.[0];
+  const render = unwrapControlFlowValue(props.children?.[0]);
   const renderItem = (typeof render === "function" ? render : (item: T) => item) as (item: T, index: number) => unknown;
 
   const rows = props.key

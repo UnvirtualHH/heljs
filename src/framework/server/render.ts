@@ -204,13 +204,22 @@ function serializeProps(props: Record<string, unknown> | null): string {
   return attributes.join("");
 }
 
+// The client turns a text slot holding an object into a block slot.
+function serializeText(value: unknown): string {
+  if (typeof value === "object" && value !== null) {
+    return `<!--${BLOCK_START}-->${serializeValue(value)}<!--${BLOCK_END}-->`;
+  }
+
+  return escapeHtml(normalizeTextValue(value));
+}
+
 function serializeValue(value: unknown): string {
   if (isNodeFactory(value)) {
     return serializeValue(value.read());
   }
 
   if (isTextBinding(value)) {
-    return escapeHtml(normalizeTextValue(get(value.cell as Cell<any>)));
+    return serializeText(get(value.cell as Cell<any>));
   }
 
   if (isAttrBinding(value)) {
@@ -234,14 +243,7 @@ function serializeValue(value: unknown): string {
       return `<!--${BLOCK_START}-->${serializeValue(value.read())}<!--${BLOCK_END}-->`;
     }
 
-    const text = value.read();
-
-    // The client turns a text slot holding an object into a block slot.
-    if (typeof text === "object" && text !== null) {
-      return `<!--${BLOCK_START}-->${serializeValue(text)}<!--${BLOCK_END}-->`;
-    }
-
-    return escapeHtml(normalizeTextValue(text));
+    return serializeText(value.read());
   }
 
   if (isKeyedList(value)) {

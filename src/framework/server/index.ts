@@ -13,6 +13,7 @@ import {
   For,
   get,
   list,
+  memo,
   node,
   onCleanup,
   onMount,
@@ -40,6 +41,7 @@ export {
   For,
   get,
   list,
+  memo,
   node,
   onCleanup,
   onMount,
@@ -49,6 +51,7 @@ export {
   store,
   text,
   tpl,
+  untrack,
   useContext,
 } from "./core";
 export type { Cell } from "./core";

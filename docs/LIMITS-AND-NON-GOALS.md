@@ -8,10 +8,10 @@ That matters because the framework is intentionally trying to stay small.
 
 ### Compiler limits
 
-- only PascalCase components are transformed
+- components are PascalCase functions, anonymous default exports containing JSX, or functions containing JSX passed to a call
 - reactive `let` destructuring is not supported
-- component parameters must currently be a simple identifier
-- helper analysis is intentionally local and conservative
+- component parameters must be a plain identifier or an object pattern
+- a module-level `let` is not reactive
 - unsupported syntax should fail clearly, but that diagnostic surface is still growing
 
 ### Runtime limits
@@ -22,7 +22,7 @@ That matters because the framework is intentionally trying to stay small.
 
 ### Store limits
 
-- `store(...)` is intentionally local and coarse-grained
+- `Date` and `Map` values are not supported yet
 - it is not a full global state architecture
 - it is not trying to replicate every Solid store capability
 

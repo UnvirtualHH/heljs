@@ -217,11 +217,11 @@ Also supported:
 Not supported in the current state:
 
 - destructuring for reactive `let` declarations
-- component parameters that are not a simple identifier
+- default and rest parameters on components
 
-For reactive `let` destructuring, the compiler now throws a clear error instead of silently producing broken code.
+Both fail with a clear compiler error.
 
-The same applies to this pattern for now:
+Destructured props stay reactive, in the parameter list and in the body:
 
 ```tsx
 function TodoCard({ todo }) {
@@ -229,20 +229,9 @@ function TodoCard({ todo }) {
 }
 ```
 
-At the moment you should accept a `props` identifier and destructure inside the function instead:
-
-```tsx
-function TodoCard(props) {
-  const { todo } = props;
-  return <article>{todo.title}</article>;
-}
-```
-
-Default parameters and rest parameters for components are also intentionally blocked with a clear compiler error in the current state.
-
 ### 3. Normal helper functions work
 
-You can write normal local functions or `const` arrow functions. If they read reactive `let` bindings, the compiler detects that and wires the call into a reactive slot.
+You can write normal local functions or `const` arrow functions. A call in JSX always gets a slot, and the runtime finds what it actually reads.
 
 ```tsx
 export function Counter() {
@@ -269,24 +258,19 @@ export function Counter() {
 
 That is an important difference from simpler approaches that only make direct JSX reads reactive.
 
-### 4. `const` stays normal TypeScript
+### 4. `const` stays up to date
 
-`const` is not rewritten into state.
-
-```tsx
-const factor = 2;
-const doubled = () => count * factor;
-```
-
-This works because `doubled()` reads reactive state when it executes.
-
-What does **not** happen at the moment:
+A top-level `const` that might read state is a derived value. It is computed once per change, however often it is read.
 
 ```tsx
+let count = 0;
+
 const doubled = count * 2;
+const label = format(count);
+const initial = untrack(() => count); // an explicit snapshot
 ```
 
-This does **not** become a cached `memo` or `computed`. It is simply a normal expression evaluated at render time.
+`store(...)`, `new ...`, `use*(...)`, and `create*(...)` are not re-run when their arguments change. See [REACTIVITY.md](docs/REACTIVITY.md) for the exact rules.
 
 ### 5. JSX stays direct and VDOM-free
 
@@ -428,12 +412,10 @@ todos[0].title = "Ship Hel v0.1";
 
 Important semantics:
 
-- intentionally coarse-grained per store
+- proxy-based, with each property tracked separately
 - deep property and array mutations trigger reactivity
-- no fine-grained property dependency graph like Solid stores
-- good enough for small to medium local data structures
-
-The compiler recognizes `store(...)` reads in JSX and local helper functions as reactive dependencies.
+- works in a component and at module level
+- `Date` and `Map` values are not supported yet
 
 ### 9. HTML-first router
 
@@ -535,6 +517,33 @@ Current context semantics:
 - rerenders the provider subtree when the provider value changes
 - good fit for auth, theme, and app-shell state
 - intentionally small, not a full dependency-injection layer
+
+### 11. Sharing logic with `use*` functions
+
+Functions named `use*` are compiled like components, also in plain `.ts` files.
+
+```ts
+export function useCart() {
+  let items: CartItem[] = [];
+  const total = items.reduce((sum, item) => sum + item.price, 0);
+
+  function add(item: CartItem) {
+    items = [...items, item];
+  }
+
+  return { items, total, add };
+}
+
+export const cart = useCart(); // a shared instance
+```
+
+```tsx
+function CartBadge() {
+  return <a href="/cart">{cart.items.length} items, {cart.total} €</a>;
+}
+```
+
+Reactive values in the returned object become getters. Returning a reactive value directly or in an array is a compile error, because it would be frozen.
 
 ## What Internally Becomes What
 
@@ -663,7 +672,7 @@ In short:
 | `disabled={count === 0}` | `dynAttr(() => ...)` plus internal `effect(...)` |
 | `{visible ? <A/> : <B/>}` | specialized `branch(...)` slot plus internal `effect(...)` |
 | `const helper = () => count * 2` | normal helper that reads `get(cell)` when called |
-| `memo(() => count * 2)` | currently **no direct counterpart** |
+| `const doubled = count * 2` | `memo(() => get(cell) * 2)` |
 
 Important:
 
@@ -672,15 +681,7 @@ Important:
 - there is no explicit `memo()` in user code either
 - the runtime implicitly takes the role of `effect()` per slot
 - compiler-generated `cell/get/set` takes the role of `signal()`
-- for `memo()` there is currently only the pragmatic form of a normal helper recalculated when needed
-
-That means a helper like
-
-```tsx
-const doubled = () => count * 2;
-```
-
-is semantically closer to an **uncached derived getter** than to a true `memo`.
+- compiler-generated `memo` takes the role of `memo()` for derived `const` values
 
 ## Current Performance Characteristics
 
@@ -691,28 +692,26 @@ The current state already does a few important things:
 - text slots patch only text nodes
 - attr slots patch only the relevant attribute or property
 - only real structural changes go through block slots
-- conditional toggles in the hot path use specialized branch slots instead of generic `dynBlock(...)`
+- conditional toggles use specialized branch slots
 - keyed `list(...)` can reuse DOM nodes on reorder
 - no virtual DOM
 
 Still missing:
 
-- cached derived values or a true `memo`
-- optimized template-cloning paths for static subtrees
+- optimized template-cloning paths for dynamic subtrees
 
 ## Current Limits
 
-- Only PascalCase components are transformed.
-- Only `let` becomes automatic reactive state.
+- Components are PascalCase functions, anonymous default exports containing JSX, or functions containing JSX passed to a call.
+- Only top-level `let` and `const` in components and `use*` functions are transformed.
 - Destructuring for reactive `let` is not implemented yet.
-- Local function analysis is intentionally conservative and intra-component only.
-- Hydration currently covers the intended happy path and mismatch fallback, but not every structural edge case.
-- The built-in `store(...)` is intentionally coarse-grained and local.
-- `list(...)` is still the official keyed story; automatic keyed compiler detection does not exist yet.
+- A module-level `let` is not reactive, and the compiler warns when JSX reads one.
+- Hydration covers the intended path and mismatch fallback, but not every structural edge case.
+- `list(...)` and keyed `For` are the official keyed story. There is no automatic keyed compiler detection.
 
 ## Relevant Files
 
-- `src/framework/compiler/plugin.ts`: AST transform for components, `let`, helper analysis, and JSX slots
+- `src/framework/compiler/plugin.ts`: AST transform for components, `use*` functions, `let`, derived `const`, and JSX slots
 - `src/framework/compiler/metrics.ts`: compiler metrics for transform output
 - `src/framework/runtime/index.ts`: public runtime API and DOM entry points
 - `src/framework/runtime/*`: split runtime for core, DOM, patching, slots, router, and hydration

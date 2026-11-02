@@ -80,16 +80,6 @@ export function replaceNodesBetween(
   }
 }
 
-export function moveNodesBetween(start: Node, end: Node, target: Node): void {
-  let current = start.nextSibling;
-
-  while (current && current !== end) {
-    const next = current.nextSibling;
-    target.appendChild(current);
-    current = next;
-  }
-}
-
 export function cloneTemplate(html: string): Node {
   let template = templateCache.get(html);
   if (!template) {
