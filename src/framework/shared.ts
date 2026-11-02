@@ -3,6 +3,42 @@ export type DynamicKind = "text" | "attr" | "block";
 export const BLOCK_START = "hs:block:start";
 export const BLOCK_END = "hs:block:end";
 export const BOUNDARY_FAILED = "hs:boundary:failed";
+// Tags that only exist in SVG, so they get the namespace wherever they are created.
+// a, title, style, and script exist in both, and rely on being inside an <svg>.
+export const SVG_TAGS = new Set([
+  "svg",
+  "animate",
+  "animateTransform",
+  "circle",
+  "clipPath",
+  "defs",
+  "desc",
+  "ellipse",
+  "feBlend",
+  "feColorMatrix",
+  "feGaussianBlur",
+  "feOffset",
+  "filter",
+  "foreignObject",
+  "g",
+  "image",
+  "line",
+  "linearGradient",
+  "marker",
+  "mask",
+  "path",
+  "pattern",
+  "polygon",
+  "polyline",
+  "radialGradient",
+  "rect",
+  "stop",
+  "symbol",
+  "text",
+  "textPath",
+  "tspan",
+  "use",
+]);
 export const DYNAMIC = Symbol("hel.dynamic");
 export const BRANCH = Symbol("hel.branch");
 export const LIST = Symbol("hel.list");
@@ -13,6 +49,24 @@ export const TEMPLATE_FACTORY = Symbol("hel.template-factory");
 export const REF_BINDING = Symbol("hel.ref-binding");
 export const COMPONENT_REACTIVE_PROPS = Symbol("hel.component-reactive-props");
 export const CONTEXT_PROVIDER = Symbol("hel.context-provider");
+
+export const LIVE_ROW = Symbol("hel.live-row");
+
+export type LiveRow<T> = ((item: () => T, index: () => number) => unknown) & { [LIVE_ROW]: true };
+
+// The compiler marks a row function that takes getters instead of values.
+export function row<T>(render: (item: () => T, index: () => number) => unknown): LiveRow<T> {
+  return Object.assign(render, { [LIVE_ROW]: true as const });
+}
+
+export function isLiveRow<T>(render: unknown): render is LiveRow<T> {
+  return typeof render === "function" && LIVE_ROW in render;
+}
+
+// For a row that only ever renders once for a value: on the server, or without a key.
+export function renderRowOnce<T>(render: (item: T, index: number) => unknown, item: T, index: number): unknown {
+  return isLiveRow<T>(render) ? render(() => item, () => index) : render(item, index);
+}
 
 export type NodeFactory<T = unknown> = {
   [NODE_FACTORY]: true;
@@ -84,6 +138,9 @@ export type Resource<T> = {
   readonly loading: boolean;
   refetch: () => void;
 };
+
+// A falsy source means "do not fetch", so the fetcher never sees one.
+export type Truthy<S> = Exclude<S, null | undefined | false | 0 | "">;
 
 export type ResourceOptions<T> = {
   initial?: T;

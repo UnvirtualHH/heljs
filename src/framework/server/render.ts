@@ -1,4 +1,6 @@
 import {
+  component,
+  dynBlock,
   get,
   isAttrBinding,
   isBranchBinding,
@@ -14,9 +16,11 @@ import {
   BLOCK_END,
   BLOCK_START,
   BOUNDARY_FAILED,
+  COMPONENT_REACTIVE_PROPS,
   CONTEXT_PROVIDER,
   isThenable,
   RENDERED_PROMISE_MESSAGE,
+  renderRowOnce,
   type ErrorBoundaryProps,
 } from "../shared";
 
@@ -181,7 +185,13 @@ function resolveAttrValue(value: unknown): unknown {
   return resolveAttrValue(value.read());
 }
 
-function serializeProps(props: Record<string, unknown> | null): string {
+// A <select> takes its value from a selected option, a <textarea> from its content.
+const VALUE_IN_CONTENT = new Set(["select", "textarea"]);
+const ATTRIBUTE_NAMES: Record<string, string> = { className: "class", htmlFor: "for" };
+
+let selectValue: string | undefined;
+
+function serializeProps(props: Record<string, unknown> | null, tag: string): string {
   if (!props) {
     return "";
   }
@@ -189,11 +199,11 @@ function serializeProps(props: Record<string, unknown> | null): string {
   const attributes: string[] = [];
 
   for (const [rawKey, rawValue] of Object.entries(props)) {
-    if (rawKey === "children" || rawKey === "ref" || rawKey.startsWith("on")) {
+    if (rawKey === "children" || rawKey === "ref" || rawKey.startsWith("on") || (rawKey === "value" && VALUE_IN_CONTENT.has(tag))) {
       continue;
     }
 
-    const normalizedKey = rawKey === "className" ? "class" : rawKey;
+    const normalizedKey = ATTRIBUTE_NAMES[rawKey] ?? rawKey;
     const resolved = resolveAttrValue(rawValue);
 
     if (resolved == null || resolved === false) {
@@ -255,7 +265,7 @@ function serializeValue(value: unknown): string {
   }
 
   if (isKeyedList(value)) {
-    return `<!--${BLOCK_START}-->${value.read().map((item, index) => serializeValue(value.render(item, index))).join("")}<!--${BLOCK_END}-->`;
+    return `<!--${BLOCK_START}-->${value.read().map((item, index) => serializeValue(renderRowOnce(value.render, item, index))).join("")}<!--${BLOCK_END}-->`;
   }
 
   if (Array.isArray(value)) {
@@ -271,13 +281,7 @@ function serializeValue(value: unknown): string {
   }
 
   if (isServerElement(value)) {
-    const open = `<${value.tag}${serializeProps(value.props)}>`;
-    if (VOID_TAGS.has(value.tag)) {
-      return open;
-    }
-
-    const children = value.children.map((entry) => serializeValue(entry)).join("");
-    return `${open}${children}</${value.tag}>`;
+    return serializeElement(value);
   }
 
   if (value == null || value === false || value === true) {
@@ -291,18 +295,54 @@ function serializeValue(value: unknown): string {
   return escapeHtml(String(value));
 }
 
+function serializeElement(element: ServerElement): string {
+  const { tag, props } = element;
+  const value = props && VALUE_IN_CONTENT.has(tag) ? resolveAttrValue(props.value) : undefined;
+  const selected = tag === "option" && selectValue !== undefined && String(resolveAttrValue(props?.value)) === selectValue;
+  const open = `<${tag}${serializeProps(props, tag)}${selected ? " selected" : ""}>`;
+
+  if (VOID_TAGS.has(tag)) {
+    return open;
+  }
+
+  if (tag === "textarea" && value != null) {
+    return `${open}${escapeHtml(String(value))}</${tag}>`;
+  }
+
+  const previousSelectValue = selectValue;
+  if (tag === "select") {
+    selectValue = value == null ? undefined : String(value);
+  }
+
+  try {
+    return `${open}${element.children.map((entry) => serializeValue(entry)).join("")}</${tag}>`;
+  } finally {
+    selectValue = previousSelectValue;
+  }
+}
+
+function hasReactiveProps(props: Record<string, unknown> | null): boolean {
+  return Object.values(props ?? {}).some(
+    (value) => isDynamic(value) || isAttrBinding(value) || isTextBinding(value) || isNodeFactory(value) || isTemplateFactory(value),
+  );
+}
+
 export function h(
   tag: string | ((props: any) => unknown),
   props: Record<string, unknown> | null,
   ...children: any[]
 ): Renderable {
   if (typeof tag === "function") {
+    // Where the client re-renders through a block, its markers have to exist here too.
     if (isContextProvider(tag)) {
       const context = tag[CONTEXT_PROVIDER];
-      return runWithContext(context, props?.value, () => renderContextChildren(children as Renderable[]));
+      const renderProvider = () => runWithContext(context, props?.value, () => renderContextChildren(children as Renderable[]));
+      return hasReactiveProps(props) ? dynBlock(renderProvider) : renderProvider();
     }
 
-    return tag(createComponentPropsView(props, children)) as Renderable;
+    const render = () => tag(createComponentPropsView(props, children)) as Renderable;
+    const managesOwnProps = (tag as unknown as Record<PropertyKey, unknown>)[COMPONENT_REACTIVE_PROPS] === true;
+    return hasReactiveProps(props) && !managesOwnProps ? dynBlock(render) : render();
   }
 
   return {
@@ -313,7 +353,7 @@ export function h(
   };
 }
 
-export function ErrorBoundary(rawProps: Record<string, unknown>): any {
+export const ErrorBoundary = component((rawProps: Record<string, unknown>): any => {
   const props = rawProps as ErrorBoundaryProps;
   let html: string;
 
@@ -331,7 +371,7 @@ export function ErrorBoundary(rawProps: Record<string, unknown>): any {
     type: "html",
     html: `<!--${BLOCK_START}-->${html}<!--${BLOCK_END}-->`,
   };
-}
+});
 
 const UNSAFE_IN_SCRIPT = new RegExp(`[<>&${String.fromCharCode(0x2028, 0x2029)}]`, "g");
 

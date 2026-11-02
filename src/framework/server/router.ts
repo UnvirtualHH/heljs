@@ -20,6 +20,7 @@ export type StaticRouter = {
   navigate: (target: string | number, options?: { replace?: boolean }) => void;
   view: () => unknown;
   isActive: (path: string) => boolean;
+  hasMatch: () => boolean;
 };
 
 export function createStaticRouter(
@@ -60,5 +61,6 @@ export function createStaticRouter(
         return renderNotFound(currentPath);
       }),
     isActive: (path: string) => Boolean(matchRoutePath(path, currentPath)),
+    hasMatch: () => findRoute(routes, currentPath) !== null,
   };
 }

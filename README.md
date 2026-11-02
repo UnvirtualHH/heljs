@@ -25,6 +25,10 @@ Additional docs:
 - Release and publish flow: [RELEASING.md](C:/projects/hellscript/codex%20version/docs/RELEASING.md)
 - Architecture: [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
 
+## See It in a Real App
+
+[pet-shop](pet-shop) is a complete shop with a real API and server rendering, in about 1,300 lines without a single `cell`, `get`, `set`, `effect`, or `memo`. What building it found is in [docs/PET-SHOP.md](docs/PET-SHOP.md).
+
 ## Project Structure
 
 The active structure is now split by responsibility:

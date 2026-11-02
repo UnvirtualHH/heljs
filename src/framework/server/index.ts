@@ -56,6 +56,7 @@ export {
   useResource,
 } from "./core";
 export type { Cell } from "./core";
+export { row } from "../shared";
 import { frag, h, renderToString, type Renderable } from "./render";
 export { ErrorBoundary, frag, h, renderToString, serializeData } from "./render";
 import type { RouteDefinition, RouterOptions } from "../shared";

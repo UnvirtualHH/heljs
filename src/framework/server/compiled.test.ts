@@ -376,9 +376,7 @@ describe("compiled hydration", () => {
     expect(root.textContent).toBe("on");
   });
 
-  // Still open: the server merges adjacent text, so the client finds one text
-  // node where it expects two. The result is correct, but it warns and rewrites.
-  it.fails("hydrates text around a dynamic value without a mismatch warning", () => {
+  it("hydrates text around a dynamic value without a mismatch warning", () => {
     hydrateFromServer(`
       function App() { let count = 0; return <button onClick={() => count++}>Count: {count}</button>; }
     `);
@@ -602,6 +600,156 @@ describe("promises on the server", () => {
         function App() { const user = load(); return <p>{user}</p>; }
       `),
     ).toThrow(/useResource/);
+  });
+});
+
+describe("what the pet shop needed from hydration", () => {
+  it("claims the children of a provider with a dynamic value", async () => {
+    const source = `
+      import { createContext, useContext } from "hel/runtime";
+      const Theme = createContext("default");
+      function Reader() { return <b>{useContext(Theme)}</b>; }
+      function App(props) {
+        return <Theme.Provider value={props.theme ?? "fallback"}><Reader /><footer>foot</footer></Theme.Provider>;
+      }
+    `;
+    const root = document.createElement("div");
+    root.innerHTML = serverRuntime.renderToString(() => serverRuntime.h(compile(source, serverRuntime, "App"), { theme: "dark" }));
+    document.body.appendChild(root);
+    const footer = root.querySelector("footer");
+
+    clientRuntime.hydrate(() => clientRuntime.h(compile(source, clientRuntime, "App"), { theme: "dark" }), root);
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(root.querySelector("footer")).toBe(footer);
+    expect(root.querySelector("b")?.textContent).toBe("dark");
+  });
+
+  it("splits text the HTML parser merged", async () => {
+    const root = hydrateFromServer(`
+      function App() {
+        let count = 1;
+        const name = "Bello";
+        return <p onClick={() => { count += 1; }}>{name} {count} years, {count} left</p>;
+      }
+    `);
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(root.textContent).toBe("Bello 1 years, 1 left");
+
+    click(root.querySelector("p"));
+    await flush();
+    expect(root.textContent).toBe("Bello 2 years, 2 left");
+  });
+
+  it("claims around a space between elements, and around an empty value", async () => {
+    const root = hydrateFromServer(`
+      function App() {
+        let note = "";
+        return <p onClick={() => { note = "set"; }}><b>a</b> <i>b</i>{note}<u>c</u></p>;
+      }
+    `);
+    const bold = root.querySelector("b");
+    const under = root.querySelector("u");
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(root.textContent).toBe("a bc");
+
+    click(root.querySelector("p"));
+    await flush();
+    expect(root.querySelector("b")).toBe(bold);
+    expect(root.querySelector("u")).toBe(under);
+    expect(root.textContent).toBe("a bsetc");
+  });
+
+  it("does not report a number rendered into an input as a mismatch", () => {
+    hydrateFromServer(`
+      function App() {
+        let price = 100;
+        return <input type="number" value={price} onInput={() => { price = 1; }} />;
+      }
+    `);
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("renders the value of a select and a textarea as HTML can read it", () => {
+    const source = `
+      function App() {
+        let sort = "name";
+        let text = "<hi>";
+        return <form onReset={() => { sort = ""; text = ""; }}>
+          <select value={sort}><option value="">Any</option><option value="name">Name</option></select>
+          <textarea value={text}></textarea>
+        </form>;
+      }
+    `;
+    const html = renderOnServer(source);
+
+    expect(html).toContain('<select><option value="">Any</option><option value="name" selected>Name</option></select>');
+    expect(html).toContain("<textarea>&lt;hi&gt;</textarea>");
+
+    const root = document.createElement("div");
+    root.innerHTML = html;
+    document.body.appendChild(root);
+    clientRuntime.hydrate(() => clientRuntime.h(compile(source, clientRuntime, "App"), null), root);
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(root.querySelector("select")?.value).toBe("name");
+    expect(root.querySelector("textarea")?.value).toBe("<hi>");
+  });
+
+  it("maps htmlFor on the server", () => {
+    expect(renderOnServer(`function App() { const id = "x"; return <label htmlFor={id}>Name</label>; }`)).toContain('for="x"');
+  });
+
+  it("claims SVG and keeps it updating", async () => {
+    const root = hydrateFromServer(`
+      function App() {
+        let radius = 1;
+        return <svg class="icon" viewBox="0 0 10 10" onClick={() => { radius += 1; }}><circle r={radius} /><text>hi</text></svg>;
+      }
+    `);
+    const circle = root.querySelector("circle");
+
+    expect(warn).not.toHaveBeenCalled();
+
+    root.querySelector("svg")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    await flush();
+    expect(root.querySelector("circle")).toBe(circle);
+    expect(circle?.getAttribute("r")).toBe("2");
+  });
+
+  it("treats an undefined initial as no initial", async () => {
+    const urls: string[] = [];
+    const fetcher = async (url: string) => {
+      urls.push(url);
+      return "data";
+    };
+    const source = `
+      import { useResource } from "hel/runtime";
+      function App() {
+        const pet = useResource(() => "/pets/1", __fetcher, { initial: undefined });
+        return <p>{pet.loading ? "loading" : pet.value}</p>;
+      }
+    `;
+    const build = (runtime: object) => {
+      const body = transform(source).replace(
+        /import \{([^}]*)\} from "hel\/runtime";/,
+        (_, names: string) => `const {${names.replaceAll(" as ", ": ")}} = __runtime;`,
+      );
+      return new Function("__runtime", "__fetcher", `${body}\nreturn App;`)(runtime, fetcher);
+    };
+    const root = document.createElement("div");
+    root.innerHTML = serverRuntime.renderToString(() => serverRuntime.h(build(serverRuntime), null));
+    document.body.appendChild(root);
+    expect(root.textContent).toBe("loading");
+
+    clientRuntime.hydrate(() => clientRuntime.h(build(clientRuntime), null), root);
+    await flush();
+
+    expect(urls).toEqual(["/pets/1"]);
+    expect(root.textContent).toBe("data");
   });
 });
 

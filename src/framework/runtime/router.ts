@@ -31,6 +31,7 @@ export type BrowserRouter = {
   navigate: (target: string | number, options?: { replace?: boolean }) => void;
   view: () => Dynamic<unknown>;
   isActive: (path: string) => Dynamic<boolean>;
+  hasMatch: () => boolean;
 };
 
 type InstallableRouter = BrowserRouter & {
@@ -118,6 +119,7 @@ export function createBrowserRouter(
       }),
     isActive: (targetPath: string) =>
       dynAttr(() => Boolean(matchRoutePath(targetPath, get(path)))),
+    hasMatch: () => get(matchedRoute) !== null,
   };
 
   installRouterEvents(router);

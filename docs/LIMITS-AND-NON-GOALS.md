@@ -8,6 +8,7 @@ That matters because the framework is intentionally trying to stay small.
 
 ### Compiler limits
 
+- `let user: User | null = null` narrows to `null` for TypeScript, so write `let user = null as User | null`
 - components are PascalCase functions, anonymous default exports containing JSX, or functions containing JSX passed to a call
 - reactive `let` destructuring is not supported
 - component parameters must be a plain identifier or an object pattern

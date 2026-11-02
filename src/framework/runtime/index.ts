@@ -74,6 +74,7 @@ export {
 } from "./core";
 export type { Cell, RuntimeStats } from "./core";
 export { useResource } from "./resource";
+export { row } from "../shared";
 import {
   ATTR_BINDING,
   BOUNDARY_FAILED,
@@ -81,6 +82,7 @@ import {
   COMPONENT_REACTIVE_PROPS,
   LIST,
   NODE_FACTORY,
+  SVG_TAGS,
   TEMPLATE_FACTORY,
   TEXT_BINDING,
   type AttrBinding,
@@ -132,17 +134,21 @@ function isDirectTextChild(value: unknown): value is string | number | bigint {
 }
 
 const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+
+let insideSvg = false;
 
 export function createRouter(routes: import("../shared").RouteDefinition[], options: import("../shared").RouterOptions = {}): Router {
   return createBrowserRouter(
     routes,
     options,
     (current) =>
+      // Lazy children, because hydration claims a parent before its children.
       h(
         "section",
         { class: "route-miss" },
-        h("h2", null, "Not found"),
-        h("p", null, `No route matched ${current}.`),
+        node(() => h("h2", null, "Not found")),
+        node(() => h("p", null, `No route matched ${current}.`)),
       ),
   );
 }
@@ -276,35 +282,52 @@ export function h(
     return renderComponent();
   }
 
-  if (!isHydrating()) {
-    const element = document.createElement(tag);
-    const deferredProps = props ? applyProps(element, props) : [];
+  const previousInsideSvg = insideSvg;
+  const isSvg = insideSvg || SVG_TAGS.has(tag);
+  insideSvg = isSvg && tag !== "foreignObject";
 
-    if (children.length === 1 && isDirectTextChild(children[0])) {
-      element.textContent = String(children[0]);
-    } else {
-      for (const child of children) {
-        appendChild(element, child);
-      }
+  try {
+    return isHydrating() ? hydrateElement(tag, isSvg, props, children) : createElement(tag, isSvg, props, children);
+  } finally {
+    insideSvg = previousInsideSvg;
+  }
+}
+
+function newElement(tag: string, isSvg: boolean): HTMLElement {
+  return (isSvg ? document.createElementNS(SVG_NAMESPACE, tag) : document.createElement(tag)) as HTMLElement;
+}
+
+function createElement(tag: string, isSvg: boolean, props: Record<string, unknown> | null, children: unknown[]): Element {
+  const element = newElement(tag, isSvg);
+  const deferredProps = props ? applyProps(element, props) : [];
+
+  if (children.length === 1 && isDirectTextChild(children[0])) {
+    element.textContent = String(children[0]);
+  } else {
+    for (const child of children) {
+      appendChild(element, child);
     }
-
-    for (const run of deferredProps) {
-      run();
-    }
-
-    return element;
   }
 
+  for (const run of deferredProps) {
+    run();
+  }
+
+  return element;
+}
+
+function hydrateElement(tag: string, isSvg: boolean, props: Record<string, unknown> | null, children: unknown[]): Element {
   const parent = currentHydrationFrame()?.parent ?? document;
   const claimed = claimHydrationNode(
     parent,
-    (node) => node instanceof HTMLElement && node.tagName.toLowerCase() === tag,
+    (node) => node instanceof Element && node.tagName.toLowerCase() === tag.toLowerCase(),
   ) as HTMLElement | null;
   if (!claimed && currentHydrationFrame(parent)?.current) {
     bailHydration(parent, `<${tag}>`);
   }
-  const element = claimed ?? document.createElement(tag);
-  const frame = openHydrationFrame(element, `<${tag}>`);
+  const element = claimed ?? newElement(tag, isSvg);
+  // The content of a textarea is its value, not children to claim or clear.
+  const frame = tag === "textarea" ? null : openHydrationFrame(element, `<${tag}>`);
   const deferredProps = props ? applyProps(element, props) : [];
 
   if (!claimed && children.length === 1 && isDirectTextChild(children[0])) {
@@ -414,26 +437,38 @@ export const ErrorBoundary = component((rawProps: Record<string, unknown>): any 
   });
 });
 
-export function mount(factory: () => unknown, target: Element): void {
+function createRootDisposer(scope: Scope, target: Element): () => void {
+  return () => {
+    disposeScope(scope);
+    target.replaceChildren();
+  };
+}
+
+export function mount(factory: () => unknown, target: Element): () => void {
   resetHydrationState();
   markHydratedRoot(target);
   target.replaceChildren();
-  appendChild(target, factory());
+
+  const scope = createScope();
+  runWithScope(scope, () => appendChild(target, factory()));
+  return createRootDisposer(scope, target);
 }
 
-export function hydrate(factory: () => unknown, target: Element): void {
+export function hydrate(factory: () => unknown, target: Element): () => void {
   if (hasHydratedRoot(target)) {
-    mount(factory, target);
-    return;
+    return mount(factory, target);
   }
 
   beginRootHydration(target);
+  const scope = createScope();
 
   try {
-    appendChild(target, factory());
+    runWithScope(scope, () => appendChild(target, factory()));
     finalizeRootHydration();
     markHydratedRoot(target);
   } finally {
     resetHydrationState();
   }
+
+  return createRootDisposer(scope, target);
 }

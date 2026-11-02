@@ -29,6 +29,7 @@ import {
   isTemplateFactory,
   isTextBinding,
   isThenable,
+  renderRowOnce,
 } from "../shared";
 
 const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
@@ -829,7 +830,7 @@ export function For<T>(rawProps: Record<string, unknown>): any {
 
   const rows = props.key
     ? list(readItems, props.key, renderItem)
-    : dynBlock(() => readItems().map((item, index) => renderItem(item, index)));
+    : dynBlock(() => readItems().map((item, index) => renderRowOnce(renderItem, item, index)));
 
   if (!("fallback" in props)) {
     return rows;

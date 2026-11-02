@@ -24,6 +24,7 @@ Notes:
 
 - use this for pure client rendering
 - `render` should return one renderable tree
+- returns a function that unmounts the root: it stops all effects, runs cleanups, and empties the target
 
 #### `hydrate(render, target)`
 
@@ -37,6 +38,7 @@ Notes:
 
 - use this when SSR markup already exists
 - falls back locally on mismatches instead of hard-failing globally
+- returns a function that unmounts the root, like `mount`
 
 #### `h(...)`
 
@@ -140,6 +142,8 @@ Current guarantees:
 - keyed DOM reuse on reorder
 - SSR and hydration compatible
 - each item should render exactly one root node
+- a row stays alive when its key brings a new object, so its state and focus survive a refetch
+- in compiled code, the parameters read the current item and index, like props
 
 #### `For(props)`
 
@@ -161,7 +165,7 @@ Props:
 Behavior:
 
 - without `key`, behaves like unkeyed `map(...)`
-- with `key`, uses keyed list semantics internally
+- with `key`, uses keyed list semantics internally, and rows stay alive as described for `list`
 
 #### `Show(props)`
 
@@ -253,6 +257,10 @@ type RouteDefinition = {
 Returns the current route view as a renderable value.
 
 The view is rebuilt when the matched route changes, or when something read in the view's own body changes. Component setup is untracked, so `<Todo id={router.params().id} />` keeps the component when the id changes, and its reads update. Its local state stays too.
+
+#### `router.hasMatch()`
+
+Whether a route matches the current path, for example to answer with a 404 on the server.
 
 #### `router.currentPath()`
 

@@ -494,6 +494,36 @@ describe("a failing keyed list", () => {
   });
 });
 
+describe("unmounting a root", () => {
+  it("empties the target, stops effects, and runs cleanups", async () => {
+    const root = createRoot();
+    const controls: { change?: () => void } = {};
+    const ran: string[] = [];
+
+    function App() {
+      let count = 0;
+      controls.change = () => {
+        count += 1;
+      };
+      effect(() => {
+        ran.push(`effect ${count}`);
+      });
+      onCleanup(() => ran.push("cleanup"));
+      return <p>{count}</p>;
+    }
+
+    const unmount = mount(() => <App />, root);
+    unmount();
+
+    expect(root.innerHTML).toBe("");
+    expect(ran).toEqual(["effect 0", "cleanup"]);
+
+    controls.change!();
+    await flush();
+    expect(ran).toEqual(["effect 0", "cleanup"]);
+  });
+});
+
 describe("promises", () => {
   it("cannot be rendered", async () => {
     const root = createRoot();

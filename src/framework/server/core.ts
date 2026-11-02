@@ -20,6 +20,7 @@ import {
   type RefBinding,
   type Resource,
   type ResourceOptions,
+  type Truthy,
   type ShowProps,
   type TemplateFactory,
   type TextBinding,
@@ -29,6 +30,7 @@ import {
   isNodeFactory,
   isTemplateFactory,
   isTextBinding,
+  renderRowOnce,
 } from "../shared";
 
 export interface Cell<T> {
@@ -98,13 +100,13 @@ export function effect(fn: () => void): () => void {
 // The loading state matches what the client starts with.
 export function useResource<S, T>(
   source: () => S,
-  _fetcher: (source: NonNullable<S>, signal: AbortSignal) => T | Promise<T>,
+  _fetcher: (source: Truthy<S>, signal: AbortSignal) => T | Promise<T>,
   options: ResourceOptions<T> = {},
 ): Resource<T> {
   return {
     value: options.initial,
     error: undefined,
-    loading: !("initial" in options) && Boolean(source()),
+    loading: options.initial === undefined && Boolean(source()),
     refetch: () => undefined,
   };
 }
@@ -303,7 +305,7 @@ export function For<T>(rawProps: Record<string, unknown>): any {
 
   const rows = props.key
     ? list(readItems, props.key, renderItem)
-    : dynBlock(() => readItems().map((item, index) => renderItem(item, index)));
+    : dynBlock(() => readItems().map((item, index) => renderRowOnce(renderItem, item, index)));
 
   if (!("fallback" in props)) {
     return rows;
@@ -333,6 +335,9 @@ export function component<T extends (...args: any[]) => any>(fn: T): T {
   });
   return fn;
 }
+
+component(For);
+component(Show);
 
 export {
   isAttrBinding,

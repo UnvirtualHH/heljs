@@ -200,6 +200,10 @@ An `<ErrorBoundary>` catches what its children throw and renders the fallback. T
 
 The fallback carries a marker, so the client knows that the server failed. That says nothing about the client, which renders the children fresh right after hydrating, without a mismatch warning. If it fails as well, it shows the fallback.
 
+## Text
+
+The HTML parser merges adjacent text, so `{breed}, {age} years` arrives as one text node. Each slot claims its part and leaves the rest for the next one. Whitespace and empty values may not exist on the server's side at all, which is not a mismatch.
+
 ## Mismatch Behavior
 
 Hydration is not allowed to fail silently in a dangerous way.

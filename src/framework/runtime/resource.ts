@@ -1,12 +1,12 @@
 import { cell, effect, get, onScopeCleanup, set, untrack } from "./core";
 import { isHydrating } from "./hydration";
-import type { Resource, ResourceOptions } from "../shared";
+import type { Resource, ResourceOptions, Truthy } from "../shared";
 
 // Only source() is tracked. A fetcher runs across awaits, where reads could not
 // be tracked anyway, so whatever identifies the data has to be in the source.
 export function useResource<S, T>(
   source: () => S,
-  fetcher: (source: NonNullable<S>, signal: AbortSignal) => T | Promise<T>,
+  fetcher: (source: Truthy<S>, signal: AbortSignal) => T | Promise<T>,
   options: ResourceOptions<T> = {},
 ): Resource<T> {
   const value = cell<T | undefined>(options.initial);
@@ -30,7 +30,7 @@ export function useResource<S, T>(
 
     // Preloaded data is only known to be fresh for the page it came with. A later
     // instance, such as coming back to a route, starts from it but still fetches.
-    const skipFetch = first && "initial" in options && isHydrating();
+    const skipFetch = first && options.initial !== undefined && isHydrating();
     const keepValue = first || !sourceChanged || options.keepPrevious;
     first = false;
     currentSource = nextSource;
@@ -61,7 +61,7 @@ export function useResource<S, T>(
     let pending: T | Promise<T>;
 
     try {
-      pending = untrack(() => fetcher(nextSource as NonNullable<S>, request.signal));
+      pending = untrack(() => fetcher(nextSource as Truthy<S>, request.signal));
     } catch (error) {
       pending = Promise.reject(error);
     }

@@ -638,7 +638,7 @@ describe("compiled JSX regressions", () => {
   // Each of these documents a bug that is still open. When one gets fixed,
   // it.fails turns red: replace it with a plain it.
   describe("known open bugs", () => {
-    it.fails("keeps the space between two expressions", () => {
+    it("keeps the space between two expressions", () => {
       const root = createRoot();
 
       function Name() {
@@ -652,7 +652,7 @@ describe("compiled JSX regressions", () => {
       expect(root.textContent).toBe("x y");
     });
 
-    it.fails("keeps spaces around inline elements in static templates", () => {
+    it("keeps spaces around inline elements in static templates", () => {
       const root = createRoot();
 
       function Copy() {
@@ -664,7 +664,7 @@ describe("compiled JSX regressions", () => {
       expect(root.textContent).toBe("Hello world again");
     });
 
-    it.fails("maps htmlFor to for in static templates", () => {
+    it("maps htmlFor to for in static templates", () => {
       const root = createRoot();
 
       function Field() {
@@ -676,7 +676,7 @@ describe("compiled JSX regressions", () => {
       expect(root.querySelector("label")?.getAttribute("for")).toBe("name");
     });
 
-    it.fails("creates SVG elements in the SVG namespace", () => {
+    it("creates SVG elements in the SVG namespace", () => {
       const root = createRoot();
 
       function Icon() {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createContext, createRouter, effect, ErrorBoundary, h, list, mount, onCleanup, onMount, useContext, useResource } from "hel/runtime";
+import { createContext, createRouter, effect, ErrorBoundary, For, h, list, mount, onCleanup, onMount, useContext, useResource } from "hel/runtime";
 
 const wait = (ms = 0) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -643,6 +643,187 @@ describe("ErrorBoundary", () => {
     window.removeEventListener("error", listener);
 
     expect(root.textContent?.trim()).toBe("go");
+  });
+});
+
+describe("keyed rows stay alive when an item changes", () => {
+  type Pet = { id: number; name: string; price: number };
+
+  function setup(useFor: boolean) {
+    const root = createRoot();
+    const controls: { pets?: (value: Pet[]) => void } = {};
+    let setups = 0;
+
+    function Row(props: { pet: Pet }) {
+      setups += 1;
+      let draft = props.pet.price;
+      return (
+        <li>
+          <b>{props.pet.name}</b>
+          <input value={draft} onInput={(event: Event) => { draft = Number((event.target as HTMLInputElement).value); }} />
+          <em>{draft === props.pet.price ? "saved" : "dirty"}</em>
+        </li>
+      );
+    }
+
+    function App() {
+      let pets = [{ id: 1, name: "a", price: 1 }, { id: 2, name: "b", price: 2 }];
+      controls.pets = (value) => {
+        pets = value;
+      };
+      return useFor
+        ? <ul><For each={pets} key={(pet: Pet) => pet.id}>{(pet: Pet) => <Row pet={pet} />}</For></ul>
+        : <ul>{list(() => pets, (pet) => pet.id, (pet) => <Row pet={pet} />)}</ul>;
+    }
+
+    mount(() => <App />, root);
+    return { root, controls, setups: () => setups };
+  }
+
+  for (const useFor of [true, false]) {
+    it(`keeps what was typed and updates what changed, with ${useFor ? "For" : "list"}`, async () => {
+      const { root, controls, setups } = setup(useFor);
+      const secondInput = root.querySelectorAll("input")[1]!;
+      secondInput.value = "9";
+      secondInput.dispatchEvent(new Event("input", { bubbles: true }));
+      await flush();
+      expect(root.querySelectorAll("em")[1]?.textContent).toBe("dirty");
+
+      controls.pets!([{ id: 1, name: "renamed", price: 5 }, { id: 2, name: "b", price: 2 }]);
+      await flush();
+
+      expect(setups()).toBe(2);
+      expect(root.querySelectorAll("input")[1]).toBe(secondInput);
+      expect(secondInput.value).toBe("9");
+      expect(root.querySelectorAll("em")[1]?.textContent).toBe("dirty");
+      expect(root.querySelector("b")?.textContent).toBe("renamed");
+      expect(root.querySelectorAll("em")[0]?.textContent).toBe("dirty");
+    });
+  }
+
+  it("keeps the index live when rows move", async () => {
+    const root = createRoot();
+    const controls: { items?: (value: string[]) => void } = {};
+
+    function App() {
+      let items = ["a", "b"];
+      controls.items = (value) => {
+        items = value;
+      };
+      return <ul><For each={items} key={(item: string) => item}>{(item: string, index: number) => <li>{index}:{item}</li>}</For></ul>;
+    }
+
+    mount(() => <App />, root);
+    controls.items!(["b", "a"]);
+    await flush();
+
+    expect([...root.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["0:b", "1:a"]);
+  });
+
+  it("gives handlers the current item, and supports destructuring", async () => {
+    const root = createRoot();
+    const controls: { items?: (value: Pet[]) => void } = {};
+    const seen: Pet[] = [];
+    const first = { id: 1, name: "old", price: 1 };
+    const second = { id: 1, name: "new", price: 1 };
+
+    function App() {
+      let items = [first];
+      controls.items = (value) => {
+        items = value;
+      };
+      return (
+        <ul>
+          <For each={items} key={(item: Pet) => item.id}>
+            {(item: Pet) => <li onClick={() => seen.push(item)}>{item.name}</li>}
+          </For>
+          <For each={items} key={(item: Pet) => item.id}>
+            {({ name, price: cost }: Pet) => <li class="plain">{name}/{cost}</li>}
+          </For>
+        </ul>
+      );
+    }
+
+    mount(() => <App />, root);
+    controls.items!([second]);
+    await flush();
+    root.querySelector("li")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+    expect(seen[0]).toBe(second);
+    expect(root.querySelector("li")?.textContent).toBe("new");
+    expect(root.querySelector(".plain")?.textContent).toBe("new/1");
+  });
+
+  it("still renders a row again when its function reads the item directly", async () => {
+    const root = createRoot();
+    const controls: { items?: (value: Pet[]) => void } = {};
+
+    function App() {
+      let items = [{ id: 1, name: "old", price: 1 }];
+      controls.items = (value) => {
+        items = value;
+      };
+      return (
+        <ul>
+          <For each={items} key={(item: Pet) => item.id}>
+            {(item: Pet) => {
+              const label = item.name.toUpperCase();
+              return <li>{label}</li>;
+            }}
+          </For>
+        </ul>
+      );
+    }
+
+    mount(() => <App />, root);
+    controls.items!([{ id: 1, name: "new", price: 1 }]);
+    await flush();
+
+    expect(root.textContent).toBe("NEW");
+  });
+
+  it("leaves a row it cannot rewrite plain, and it still updates", async () => {
+    const root = createRoot();
+    const controls: { items?: (value: Pet[]) => void } = {};
+
+    function App() {
+      let items = [{ id: 1, name: "old", price: 1 }];
+      controls.items = (value) => {
+        items = value;
+      };
+      return (
+        <ul>
+          <For each={items} key={(item: Pet) => item.id}>
+            {({ name = "none" }: Pet) => <li>{name}</li>}
+          </For>
+        </ul>
+      );
+    }
+
+    mount(() => <App />, root);
+    controls.items!([{ id: 1, name: "new", price: 1 }]);
+    await flush();
+
+    expect(root.textContent).toBe("new");
+  });
+
+  it("works without a key", async () => {
+    const root = createRoot();
+    const controls: { items?: (value: string[]) => void } = {};
+
+    function App() {
+      let items = ["a"];
+      controls.items = (value) => {
+        items = value;
+      };
+      return <ul><For each={items}>{(item: string) => <li>{item}</li>}</For></ul>;
+    }
+
+    mount(() => <App />, root);
+    controls.items!(["a", "b"]);
+    await flush();
+
+    expect(root.textContent).toBe("ab");
   });
 });
 

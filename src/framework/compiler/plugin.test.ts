@@ -31,6 +31,37 @@ function transformError(code: string): Error | null {
   }
 }
 
+describe("JSX text and static templates", () => {
+  const firstTemplate = (output: string) => /__tpl\("([^"]*)"/.exec(output.replace(/\s+/g, " "))?.[1];
+
+  it("keeps whitespace on one line and drops whitespace with a line break", () => {
+    const output = transform(`function Comp(props) {
+      return <p>
+        Hello {props.a} {props.b}
+        and goodbye
+      </p>;
+    }`).replace(/\s+/g, " ");
+
+    expect(output).toContain('"Hello "');
+    expect(output).toContain('" "');
+    expect(output).toContain('"and goodbye"');
+  });
+
+  it("writes void tags once in a template", () => {
+    expect(firstTemplate(transform(`function Comp(props) { return <div>{props.a}<p>a<br />b</p></div>; }`))).toBe("<p>a<br>b</p>");
+  });
+
+  it("does not build a template from an SVG child on its own", () => {
+    const output = transform(`function Comp(props) { return <svg>{props.a}<circle r="1" /></svg>; }`);
+
+    expect(output).not.toContain("<circle");
+  });
+
+  it("does build a template from a whole static SVG", () => {
+    expect(firstTemplate(transform(`function Comp(props) { return <div>{props.a}<svg><circle r="1" /></svg></div>; }`))).toContain("<svg><circle");
+  });
+});
+
 describe("async functions", () => {
   it("rejects an async component", () => {
     expect(transformError(`async function Comp() { return <div />; }`)?.message).toMatch(/async component.*useResource/);

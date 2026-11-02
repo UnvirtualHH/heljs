@@ -162,7 +162,18 @@ A branch that is hidden is disposed, whether it was written with a ternary, `&&`
 - without `key`: an unkeyed block that re-renders
 - with `key`: nodes and row state move with their key
 
-Each keyed row tracks what it read while rendering, so a change re-renders only that row. A row whose item changes is patched in place when nothing in it is reactive.
+A keyed row stays alive when its key brings a new object, for example after a refetch. The compiler rewrites its parameters so they read the current value, like props, so its `let` state and focus survive and only the slots that read a changed value update. A row is rendered again only if its function reads the item directly in its own body:
+
+```tsx
+<For each={pets} key={(pet) => pet.id}>
+  {(pet) => {
+    const label = pet.name.toUpperCase(); // read here, so this row renders again
+    return <li>{label}</li>;
+  }}
+</For>
+```
+
+The same happens when the compiler cannot rewrite a parameter safely, such as with a default value in a destructuring pattern.
 
 ```tsx
 <Show when={selected} fallback={<Empty />}>

@@ -4,6 +4,7 @@ import * as traverseModule from "@babel/traverse";
 import type { NodePath, Visitor } from "@babel/traverse";
 import * as t from "@babel/types";
 import type { Plugin } from "vite";
+import { SVG_TAGS } from "../shared";
 
 function unwrapCallable(moduleValue: unknown): (...args: unknown[]) => unknown {
   let current = moduleValue;
@@ -43,6 +44,7 @@ type UsedHelpers = {
   attr: boolean;
   branch: boolean;
   tpl: boolean;
+  row: boolean;
   dynText: boolean;
   dynAttr: boolean;
   dynBlock: boolean;
@@ -98,6 +100,8 @@ const FACTORY_NAME = /^create[A-Z]/;
 const HOOK_DECLARATION = /\bfunction\s+use[A-Z]|\buse[A-Z]\w*\s*=/;
 const SETUP_CALLS = new Set(["store", "untrack", "memo", "list", "ref", "effect", "cell", "component"]);
 const EVENT_PROP = /^on[A-Z]/;
+const STATIC_ATTRIBUTE_NAMES: Record<string, string> = { className: "class", htmlFor: "for" };
+const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
 const BINARY_ASSIGNMENTS = new Set([
   "+=",
   "-=",
@@ -119,11 +123,11 @@ const keyedListCalls = new WeakSet<t.Node>();
 
 function isRuntimeListCall(path: NodePath<t.CallExpression>): boolean {
   const callee = path.node.callee;
-  if (!t.isIdentifier(callee)) {
-    return false;
-  }
+  return t.isIdentifier(callee) && isRuntimeImport(path, callee.name, "list");
+}
 
-  const binding = path.scope.getBinding(callee.name);
+function isRuntimeImport(path: NodePath, name: string, imported: string): boolean {
+  const binding = path.scope.getBinding(name);
   if (!binding || !binding.path.isImportSpecifier()) {
     return false;
   }
@@ -132,8 +136,85 @@ function isRuntimeListCall(path: NodePath<t.CallExpression>): boolean {
   return (
     t.isImportDeclaration(declaration) &&
     RUNTIME_IMPORT_SOURCES.has(declaration.source.value) &&
-    t.isIdentifier(binding.path.node.imported, { name: "list" })
+    t.isIdentifier(binding.path.node.imported, { name: imported })
   );
+}
+
+type RowFunction = NodePath<t.ArrowFunctionExpression | t.FunctionExpression>;
+
+// What a row's parameter reads: the item itself, or one property of it.
+function rowParameterBindings(parameter: NodePath, functionPath: RowFunction): Array<{ name: string; property: string | null }> | null {
+  if (parameter.isIdentifier()) {
+    return [{ name: parameter.node.name, property: null }];
+  }
+
+  if (!parameter.isObjectPattern()) {
+    return null;
+  }
+
+  const bindings: Array<{ name: string; property: string | null }> = [];
+
+  for (const property of parameter.node.properties) {
+    if (!t.isObjectProperty(property) || property.computed || !t.isIdentifier(property.key) || !t.isIdentifier(property.value)) {
+      return null;
+    }
+    bindings.push({ name: property.value.name, property: property.key.name });
+  }
+
+  return functionPath.scope ? bindings : null;
+}
+
+function replaceRowReferences(
+  functionPath: RowFunction,
+  bindings: Array<{ name: string; property: string | null }>,
+  read: (property: string | null) => t.Expression,
+): void {
+  for (const { name, property } of bindings) {
+    for (const reference of functionPath.scope.getBinding(name)!.referencePaths) {
+      const parent = reference.parentPath;
+      if (parent?.isObjectProperty({ shorthand: true })) {
+        parent.node.shorthand = false;
+      }
+      reference.replaceWith(read(property));
+    }
+  }
+}
+
+// A keyed row stays alive when a refetch brings a new object for its key, so what
+// was typed into it survives. Its parameters read the current value, like props.
+// Anything this cannot rewrite safely stays plain and renders the row again.
+function makeRowLive(functionPath: RowFunction, used: UsedHelpers): t.CallExpression | null {
+  const [itemParameter, indexParameter, ...rest] = functionPath.get("params") as NodePath[];
+  if (!itemParameter || rest.length > 0) {
+    return null;
+  }
+
+  const itemBindings = rowParameterBindings(itemParameter, functionPath);
+  const indexBindings = indexParameter ? rowParameterBindings(indexParameter, functionPath) : [];
+  if (!itemBindings || !indexBindings || indexBindings.some((binding) => binding.property !== null)) {
+    return null;
+  }
+
+  const unsafe = [...itemBindings, ...indexBindings].some(({ name }) => {
+    const binding = functionPath.scope.getBinding(name);
+    return !binding || !binding.constant || binding.referencePaths.some((reference) => reference.isJSXIdentifier());
+  });
+  if (unsafe) {
+    return null;
+  }
+
+  const readItem = functionPath.scope.generateUidIdentifier("item");
+  const readIndex = functionPath.scope.generateUidIdentifier("index");
+
+  replaceRowReferences(functionPath, itemBindings, (property) => {
+    const value = t.callExpression(t.cloneNode(readItem), []);
+    return property ? t.memberExpression(value, t.identifier(property)) : value;
+  });
+  replaceRowReferences(functionPath, indexBindings, () => t.callExpression(t.cloneNode(readIndex), []));
+
+  functionPath.node.params = indexParameter ? [readItem, readIndex] : [readItem];
+  used.row = true;
+  return t.callExpression(t.identifier("__row"), [functionPath.node]);
 }
 
 function createUsedHelpers(): UsedHelpers {
@@ -149,6 +230,7 @@ function createUsedHelpers(): UsedHelpers {
     attr: false,
     branch: false,
     tpl: false,
+    row: false,
     dynText: false,
     dynAttr: false,
     dynBlock: false,
@@ -715,8 +797,26 @@ function expressionProducesBlock(node: t.Expression, analysis?: ComponentAnalysi
   return false;
 }
 
-function normalizeStaticText(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+// The rule of every other JSX compiler: whitespace with a line break in it is
+// formatting and goes away, whitespace on a single line is content.
+function normalizeJsxText(value: string): string {
+  const lines = value.split(String.fromCharCode(10));
+  const kept: string[] = [];
+
+  lines.forEach((line, index) => {
+    let text = line.replace(/\s+/g, " ");
+    if (index > 0) {
+      text = text.trimStart();
+    }
+    if (index < lines.length - 1) {
+      text = text.trimEnd();
+    }
+    if (text) {
+      kept.push(text);
+    }
+  });
+
+  return kept.join(" ");
 }
 
 function escapeStaticHtml(value: string): string {
@@ -768,6 +868,19 @@ function staticAttributeValue(attribute: t.JSXAttribute): string | null {
   return null;
 }
 
+// A template parses as HTML, so an SVG child on its own would lose its namespace.
+function templateHtml(node: t.JSXElement | t.JSXFragment): string | null {
+  if (t.isJSXElement(node) && t.isJSXIdentifier(node.openingElement.name) && SVG_TAGS.has(node.openingElement.name.name) && node.openingElement.name.name !== "svg") {
+    return null;
+  }
+
+  if (t.isJSXFragment(node) && node.children.some((child) => t.isJSXElement(child) && templateHtml(child) === null)) {
+    return null;
+  }
+
+  return staticJsxHtml(node);
+}
+
 function staticJsxHtml(node: t.JSXElement | t.JSXFragment): string | null {
   if (t.isJSXFragment(node)) {
     const parts: string[] = [];
@@ -800,8 +913,13 @@ function staticJsxHtml(node: t.JSXElement | t.JSXFragment): string | null {
       return null;
     }
 
-    const attrName = t.isJSXIdentifier(attribute.name) ? (attribute.name.name === "className" ? "class" : attribute.name.name) : "";
+    const attrName = t.isJSXIdentifier(attribute.name) ? (STATIC_ATTRIBUTE_NAMES[attribute.name.name] ?? attribute.name.name) : "";
     attrs.push(value === "" ? ` ${attrName}=""` : ` ${attrName}="${value}"`);
+  }
+
+  // </br> would parse as a second line break.
+  if (VOID_TAGS.has(tag)) {
+    return `<${tag}${attrs.join("")}>`;
   }
 
   const children: string[] = [];
@@ -820,8 +938,7 @@ function staticJsxChildHtml(
   child: t.JSXText | t.JSXExpressionContainer | t.JSXElement | t.JSXFragment | t.JSXSpreadChild,
 ): string | null {
   if (t.isJSXText(child)) {
-    const normalized = normalizeStaticText(child.value);
-    return normalized.length > 0 ? escapeStaticHtml(normalized) : "";
+    return escapeStaticHtml(normalizeJsxText(child.value));
   }
 
   if (t.isJSXElement(child) || t.isJSXFragment(child)) {
@@ -861,8 +978,8 @@ function buildJsxChildren(
 
   for (const child of children) {
     if (t.isJSXText(child)) {
-      const normalized = child.value.replace(/\s+/g, " ");
-      if (normalized.trim().length > 0) {
+      const normalized = normalizeJsxText(child.value);
+      if (normalized.length > 0) {
         output.push(t.stringLiteral(normalized));
       }
       continue;
@@ -881,14 +998,14 @@ function buildJsxChildren(
 
     if (t.isJSXElement(child)) {
       const built = buildJsxElement(child, used, analysis);
-      const html = staticJsxHtml(child);
+      const html = templateHtml(child);
       output.push(html ? wrapTemplateFactory(html, built, used) : wrapNodeFactory(built, used));
       continue;
     }
 
     if (t.isJSXFragment(child)) {
       const built = buildJsxFragment(child, used, analysis);
-      const html = staticJsxHtml(child);
+      const html = templateHtml(child);
       output.push(html ? wrapTemplateFactory(html, built, used) : wrapNodeFactory(built, used));
       continue;
     }
@@ -1826,6 +1943,7 @@ function injectRuntimeImport(ast: t.File, used: UsedHelpers): void {
     { imported: "attr", local: "__attr", enabled: used.attr },
     { imported: "branch", local: "__branch", enabled: used.branch },
     { imported: "tpl", local: "__tpl", enabled: used.tpl },
+    { imported: "row", local: "__row", enabled: used.row },
     { imported: "dynText", local: "__dynText", enabled: used.dynText },
     { imported: "dynAttr", local: "__dynAttr", enabled: used.dynAttr },
     { imported: "dynBlock", local: "__dynBlock", enabled: used.dynBlock },
@@ -1930,6 +2048,37 @@ export function helMagicPlugin(): Plugin {
         CallExpression(path: NodePath<t.CallExpression>) {
           if (isRuntimeListCall(path)) {
             keyedListCalls.add(path.node);
+
+            const render = (path.get("arguments") as NodePath[])[2];
+            if (render?.isArrowFunctionExpression() || render?.isFunctionExpression()) {
+              const live = makeRowLive(render as RowFunction, used);
+              if (live) {
+                path.node.arguments[2] = live;
+                changed = true;
+              }
+            }
+          }
+        },
+
+        JSXExpressionContainer(path: NodePath<t.JSXExpressionContainer>) {
+          const owner = path.parentPath;
+          if (!owner.isJSXElement() || !t.isJSXIdentifier(owner.node.openingElement.name)) {
+            return;
+          }
+
+          if (!isRuntimeImport(owner, owner.node.openingElement.name.name, "For")) {
+            return;
+          }
+
+          const render = path.get("expression");
+          if (render.isArrowFunctionExpression() || render.isFunctionExpression()) {
+            const live = makeRowLive(render as RowFunction, used);
+            if (live) {
+              keyedListCalls.add(live);
+              path.node.expression = live;
+              path.skip();
+              changed = true;
+            }
           }
         },
 

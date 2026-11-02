@@ -35,6 +35,7 @@ import {
   isHydrating,
   openHydrationFrame,
   warnHydrationMismatch,
+  type HydrationFrame,
 } from "./hydration";
 import {
   appendNode,
@@ -50,11 +51,12 @@ import {
   tryPatchNodeInPlace,
   tryPatchNodeListInPlace,
 } from "./patch";
-import { isThenable, RENDERED_PROMISE_MESSAGE, type Dynamic, type KeyedList } from "../shared";
+import { isLiveRow, isThenable, RENDERED_PROMISE_MESSAGE, type Dynamic, type KeyedList } from "../shared";
 
 type ListEntry<T> = {
   item: Cell<T>;
   index: number;
+  indexCell: Cell<number> | null;
   key: string | number;
   node: Node;
   scope: Scope;
@@ -78,17 +80,25 @@ function createListEntry<T>(
   const entry: ListEntry<T> = {
     item: cell(item),
     index,
+    indexCell: null,
     key,
     node: null as unknown as Node,
     scope: createScope(),
   };
   let contentScope: Scope | null = null;
+  const render = binding.render;
+  const renderRow = isLiveRow<T>(render)
+    ? () =>
+        render(
+          () => get(entry.item),
+          () => get((entry.indexCell ??= cell(entry.index))),
+        )
+    : () => render(get(entry.item), entry.index);
 
   runWithScope(entry.scope, () => {
     onScopeCleanup(() => disposeScope(contentScope));
 
     effect(() => {
-      const current = get(entry.item);
       const wasStatic = isStaticScope(contentScope);
       disposeScope(contentScope);
 
@@ -98,9 +108,7 @@ function createListEntry<T>(
       let node: Node;
 
       try {
-        node = runWithScope(nextScope, () =>
-          readSingleRenderableNode(binding.render(current, entry.index), "list()"),
-        );
+        node = runWithScope(nextScope, () => readSingleRenderableNode(renderRow(), "list()"));
       } catch (error) {
         // The old row is disposed, so keeping it on screen would show dead content.
         if (previous?.parentNode) {
@@ -245,8 +253,41 @@ function placeNode(parent: Node, node: Node): void {
   appendNode(parent, node);
 }
 
+// The HTML parser merges adjacent text, so one server text node can hold several
+// slots. Each slot takes its own part, and leaves the rest for the next one.
+function claimTextPart(frame: HydrationFrame, value: string): Text | null {
+  const next = frame.current;
+
+  if (!value || !next || next === frame.boundary || next.nodeType !== Node.TEXT_NODE || !(next as Text).data.startsWith(value)) {
+    return null;
+  }
+
+  const text = next as Text;
+  frame.current = text.data.length > value.length ? text.splitText(value.length) : (text.nextSibling as ChildNode | null);
+  return text;
+}
+
+function claimText(parent: Node, value: string): Text | null {
+  const frame = currentHydrationFrame(parent);
+
+  return (
+    (frame && claimTextPart(frame, value)) ??
+    (claimHydrationNode(parent, (node) => node.nodeType === Node.TEXT_NODE) as Text | null)
+  );
+}
+
 function mountStaticText(parent: Node, value: string): void {
-  const claimed = claimHydrationNode(parent, (node) => node.nodeType === Node.TEXT_NODE) as Text | null;
+  const frame = currentHydrationFrame(parent);
+
+  // Whitespace can be missing on the server's side, which is not a mismatch.
+  if (frame && !value.trim()) {
+    if (value && !claimTextPart(frame, value)) {
+      placeNode(parent, document.createTextNode(value));
+    }
+    return;
+  }
+
+  const claimed = claimText(parent, value);
   if (claimed) {
     if (claimed.data !== value) {
       warnHydrationMismatch(`text("${value}")`, claimed);
@@ -306,8 +347,10 @@ function mountTextSlot(parent: Node, read: () => unknown): void {
     }
 
     if (!text) {
-      const claimed = claimHydrationNode(parent, (node) => node.nodeType === Node.TEXT_NODE) as Text | null;
-      if (!claimed && currentHydrationFrame(parent)?.current) {
+      const initial = normalizeTextValue(value);
+      // An empty value leaves no text on the server's side, so there is nothing to claim.
+      const claimed = initial ? claimText(parent, initial) : null;
+      if (initial && !claimed && currentHydrationFrame(parent)?.current) {
         bailHydration(parent, "dynamic text");
       }
       text = claimed ?? document.createTextNode("");
@@ -345,7 +388,12 @@ function matchesHydratedProperty(element: HTMLElement, key: string, value: unkno
     !normalizedKey.startsWith("aria-");
 
   if (normalizedKey === "class") {
-    return element.className === normalizeTextValue(value);
+    return (element.getAttribute("class") ?? "") === normalizeTextValue(value);
+  }
+
+  // What the server rendered for a select is the option it marked as selected.
+  if (normalizedKey === "value" && element instanceof HTMLSelectElement) {
+    return element.querySelector("option[selected]")?.getAttribute("value") === String(value ?? "");
   }
 
   // Properties can differ from what was rendered: href reads as an absolute URL.
@@ -353,7 +401,7 @@ function matchesHydratedProperty(element: HTMLElement, key: string, value: unkno
     return true;
   }
 
-  if (isDomProperty) {
+  if (isDomProperty && !(element instanceof SVGElement)) {
     const current = (element as unknown as Record<string, unknown>)[normalizedKey];
 
     if (typeof current === "boolean") {
@@ -364,7 +412,8 @@ function matchesHydratedProperty(element: HTMLElement, key: string, value: unkno
       return current === "";
     }
 
-    return Object.is(current, value);
+    // An input's value is always a string, also when it is rendered from a number.
+    return typeof current === "string" && typeof value === "number" ? current === String(value) : Object.is(current, value);
   }
 
   if (value == null || value === false) {
@@ -391,7 +440,7 @@ function writeProperty(element: HTMLElement, key: string, value: unknown): void 
       return;
     }
 
-    element.className = String(value);
+    element.setAttribute("class", String(value));
     return;
   }
 
@@ -400,7 +449,8 @@ function writeProperty(element: HTMLElement, key: string, value: unknown): void 
     return;
   }
 
-  if (isDomProperty) {
+  // Most properties of an SVG element are read-only objects.
+  if (isDomProperty && !(element instanceof SVGElement)) {
     const target = element as unknown as Record<string, unknown>;
     const current = target[normalizedKey];
 
@@ -421,7 +471,7 @@ function writeProperty(element: HTMLElement, key: string, value: unknown): void 
       return;
     }
 
-    target[normalizedKey] = value;
+    target[normalizedKey] = typeof value === "number" && typeof current === "string" ? String(value) : value;
     if (typeof value === "string" || typeof value === "number") {
       element.setAttribute(normalizedKey, String(value));
     }
@@ -642,8 +692,13 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
   };
 
   const updateEntry = (entry: ListEntry<T>, item: T, index: number): void => {
+    entry.index = index;
+
+    if (entry.indexCell) {
+      set(entry.indexCell, index);
+    }
+
     if (entry.item.value !== item) {
-      entry.index = index;
       set(entry.item, item);
     }
   };
