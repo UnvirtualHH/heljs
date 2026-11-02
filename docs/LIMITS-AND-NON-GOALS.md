@@ -33,6 +33,12 @@ That matters because the framework is intentionally trying to stay small.
 - no loaders or actions
 - no large framework-level data orchestration
 
+### Data limits
+
+- `useResource` has no cache, deduplication, or retry
+- the server never fetches, so preloading is written by hand
+- no Suspense and no streaming SSR
+
 ### Packaging limits
 
 - ESM-only

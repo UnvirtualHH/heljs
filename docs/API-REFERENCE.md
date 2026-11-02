@@ -181,6 +181,51 @@ Props:
 
 Normal ternaries in JSX remain the default option.
 
+### Async Data
+
+#### `useResource(source, fetcher, options?)`
+
+Loads data and keeps it in step with `source`.
+
+```tsx
+const pet = useResource(() => `/api/pets/${props.id}`, getJson);
+
+return pet.loading ? <Spinner /> : <PetDetails pet={pet.value} />;
+```
+
+- `source()` is tracked and identifies the data. A falsy value means "do not fetch". If its value did not change, nothing happens.
+- `fetcher(source, signal)` is untracked. The `signal` aborts when the source changes or the component goes away, and an outdated response is ignored either way.
+
+| Member | Meaning |
+| --- | --- |
+| `value` | The data, or `undefined`. **Throws if the last request failed**, unless you check `error` first |
+| `error` | The failure |
+| `loading` | Whether a request is running |
+| `refetch()` | Runs again, keeps the value while loading, and clears the error |
+
+| Option | Meaning |
+| --- | --- |
+| `initial` | Starts with this value. While hydrating, it also skips the first fetch |
+| `keepPrevious` | Keeps the old value when the source changes |
+
+There is no cache, deduplication, or retry. On the server it never fetches: it reports `loading`, or returns `initial`.
+
+### Errors
+
+#### `ErrorBoundary(props)`
+
+Shows a fallback when something below it throws.
+
+```tsx
+<ErrorBoundary fallback={(error, retry) => <Oops error={error} onRetry={retry} />}>
+  <PetPage id={id} />
+</ErrorBoundary>
+```
+
+`fallback` is JSX or a function receiving the error and `retry`, which renders the children again from scratch.
+
+It catches component setup, slots, keyed rows, `effect`, `onMount`, and reading the `value` of a failed resource. A throwing fallback goes to the next boundary out. It does not catch event handlers and their promises, which stay with the browser, or `onCleanup`, which goes to `reportError`.
+
 ### Router
 
 #### `createRouter(routes, options?)`
@@ -206,6 +251,8 @@ type RouteDefinition = {
 #### `router.view()`
 
 Returns the current route view as a renderable value.
+
+The view is rebuilt when the matched route changes, or when something read in the view's own body changes. Component setup is untracked, so `<Todo id={router.params().id} />` keeps the component when the id changes, and its reads update. Its local state stays too.
 
 #### `router.currentPath()`
 
@@ -303,6 +350,16 @@ The API mirrors the client router closely:
 
 Numeric navigation is a no-op on the server.
 
+### `serializeData(value)`
+
+Turns preloaded data into text that is safe inside a `<script>`. A plain `JSON.stringify` is not, because a value containing `</script>` would break out of it.
+
+```ts
+const pets = await api.pets();
+const html = renderToString(() => <App pets={pets} />);
+const page = `${html}<script>window.__DATA__ = ${serializeData({ pets })}</script>`;
+```
+
 ### Shared SSR exports
 
 `hel/server` also exposes the same small helper surface needed by compiled SSR output, including:
@@ -314,6 +371,8 @@ Numeric navigation is a no-op on the server.
 - `list`
 - `store`
 - `branch`
+- `useResource`
+- `ErrorBoundary`
 
 ## `hel/vite`
 
@@ -345,6 +404,7 @@ These constraints are part of the current public behavior and should be treated 
 - component parameters must be a plain identifier or an object pattern
 - `list(...)` is the official keyed list story
 - the router is intentionally small
+- async components and `async use*` functions are compile errors
 
 ## Recommended Reading Order
 

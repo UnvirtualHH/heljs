@@ -2,6 +2,7 @@ export type DynamicKind = "text" | "attr" | "block";
 
 export const BLOCK_START = "hs:block:start";
 export const BLOCK_END = "hs:block:end";
+export const BOUNDARY_FAILED = "hs:boundary:failed";
 export const DYNAMIC = Symbol("hel.dynamic");
 export const BRANCH = Symbol("hel.branch");
 export const LIST = Symbol("hel.list");
@@ -72,6 +73,23 @@ export type ShowProps = {
   children?: unknown[];
 };
 
+export type ErrorBoundaryProps = {
+  fallback?: unknown;
+  children?: unknown[];
+};
+
+export type Resource<T> = {
+  readonly value: T | undefined;
+  readonly error: unknown;
+  readonly loading: boolean;
+  refetch: () => void;
+};
+
+export type ResourceOptions<T> = {
+  initial?: T;
+  keepPrevious?: boolean;
+};
+
 export type ContextDefinition<T> = {
   id: symbol;
   defaultValue: T;
@@ -133,6 +151,12 @@ export function isRefBinding(value: unknown): value is RefBinding {
 export function isKeyedList(value: unknown): value is KeyedList<unknown> {
   return typeof value === "object" && value !== null && LIST in value;
 }
+
+export function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return typeof value === "object" && value !== null && typeof (value as { then?: unknown }).then === "function";
+}
+
+export const RENDERED_PROMISE_MESSAGE = "[hel] A Promise cannot be rendered. Load data with useResource() instead.";
 
 export function normalizeRoutePath(path: string): string {
   if (!path) {

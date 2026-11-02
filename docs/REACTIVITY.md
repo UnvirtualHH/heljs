@@ -185,13 +185,19 @@ todos.push({ title: "Write docs", done: false });
 
 It is proxy-based and tracks each property separately. `Date` and `Map` values are not supported yet.
 
+## Async Data and Errors
+
+`useResource(source, fetcher)` loads data. Only `source` is tracked, so whatever identifies the data belongs there. See [ASYNC-AND-ERRORS.md](ASYNC-AND-ERRORS.md) for the reasoning.
+
+A slot that throws goes to the nearest `<ErrorBoundary>`. Without one, the error goes to `reportError`, and until its next change the slot shows nothing, because its content is disposed. An attribute keeps its last value, since removing `disabled` or `class` could be worse. The slot tries again on its next change.
+
 ## Scheduler Model
 
 - writes schedule effects
 - effects flush in a microtask
 - repeated writes within one tick are coalesced
 - derived values are invalidated synchronously and recompute when read
-- an effect that throws is reported through `reportError`, and the others still run
+- an effect that throws goes to the nearest `<ErrorBoundary>` or to `reportError`, and the others still run
 - effects that keep triggering each other are stopped after 100 cycles with an error
 
 ## Relation to `signal`, `effect`, and `memo`
@@ -211,7 +217,8 @@ These exist internally. User code should rarely need them.
 - reactive `let` destructuring is not supported
 - component parameters must be a plain identifier or an object pattern
 - only top-level `let` and `const` are transformed
-- an async `const` initializer is not supported
+- an async component or `use*` function is a compile error. Use `useResource`
+- reads after an `await` are not tracked, and `onCleanup` and `useContext` do not work there
 
 ## Recommended Reading Order
 

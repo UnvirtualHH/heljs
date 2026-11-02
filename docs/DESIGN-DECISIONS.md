@@ -291,8 +291,7 @@ If the Pet Shop regularly needs `cell`/`get`/`set`, or workarounds for the compi
 
 ## Deliberately not decided here
 
-- Async data and resources, which the Pet Shop will need at least minimally
-- Error boundaries
+- Async data and error boundaries, now decided in [ASYNC-AND-ERRORS.md](ASYNC-AND-ERRORS.md)
 - HMR
 - Package name (`hel` is taken on npm), semver, and the package fixes
 - `Date` and `Map` in `store()`

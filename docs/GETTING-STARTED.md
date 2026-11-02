@@ -144,6 +144,7 @@ That is already implemented in [starter-ssr/vite.config.ts](C:/projects/hellscri
 - reactive `let` destructuring is not implemented yet
 - `list(...)` and keyed `For` are the official keyed list story
 - the router is intentionally small: no nested routes, guards, or loader or action APIs
+- data loads with `useResource`, and async components are a compile error
 
 ## Useful Next Documents
 

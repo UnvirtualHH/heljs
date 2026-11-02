@@ -9,7 +9,7 @@ It is intentionally scoped to what exists today:
 - local mismatch fallback
 - small router integration
 
-It is not a full meta-framework data loading model.
+It is not a full meta-framework data loading model, but see [Data on the Server](#data-on-the-server).
 
 ## Mental Model
 
@@ -164,7 +164,41 @@ On the client:
 
 - internal anchors are intercepted
 - `popstate` is wired
-- `router.view()` updates as path and query change
+- `router.view()` updates when the matched route changes, and everything else reaches the page through its slots
+
+## Data on the Server
+
+`renderToString` is synchronous, and the server never fetches. A `useResource` without `initial` renders its loading state, and the client fetches right after hydrating.
+
+To have data in the HTML, load it first and pass it in:
+
+```tsx
+// entry-server.tsx
+import { renderToString, serializeData } from "hel/server";
+
+const pets = await api.pets();
+const html = renderToString(() => <App pets={pets} />);
+const page = `${html}<script>window.__DATA__ = ${serializeData({ pets })}</script>`;
+
+// entry-client.tsx
+hydrate(() => <App pets={window.__DATA__.pets} />, root);
+
+// App.tsx
+const pets = useResource(() => "/api/pets", getJson, { initial: props.pets });
+```
+
+While hydrating, `initial` skips the first fetch. A later instance, such as coming back to the route, starts from it and fetches, because the data is no longer known to be fresh.
+
+Things to keep in mind:
+
+- a page without preloaded data contains only its loading state, which matters for SEO
+- `export const cart = useCart()` is one instance per server process, shared across requests, so nothing may write to it while rendering
+
+## Errors on the Server
+
+An `<ErrorBoundary>` catches what its children throw and renders the fallback. The error is written to `console.error`, since nobody would see it otherwise. Without a boundary, `renderToString` throws.
+
+The fallback carries a marker, so the client knows that the server failed. That says nothing about the client, which renders the children fresh right after hydrating, without a mismatch warning. If it fails as well, it shows the fallback.
 
 ## Mismatch Behavior
 
@@ -172,7 +206,7 @@ Hydration is not allowed to fail silently in a dangerous way.
 
 Current behavior:
 
-- in development: warn with path information
+- in development: warn with path information. A production build shows no warning, so check hydration in a development build
 - in production: remount the smallest affected local subtree
 
 This is a practical tradeoff:

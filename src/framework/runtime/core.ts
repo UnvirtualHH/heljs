@@ -28,9 +28,11 @@ import {
   isRefBinding,
   isTemplateFactory,
   isTextBinding,
+  isThenable,
 } from "../shared";
 
 const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+const ERROR_HANDLER = Symbol("hel.error-handler");
 
 type EffectRunner = (() => void) & {
   deps: Set<Set<EffectRunner>>;
@@ -42,8 +44,14 @@ const MAX_FLUSH_CYCLES = 100;
 const EMPTY_CLEANUPS: Array<() => void> = [];
 const EMPTY_MOUNTS: Array<() => void> = [];
 
+type ContextFrame = {
+  parent: ContextFrame | null;
+  values: Map<symbol, unknown>;
+};
+
 export type Scope = {
   parent: Scope | null;
+  frame: ContextFrame | null;
   cleanups: Array<() => void>;
   mounts: Array<() => void>;
   active: boolean;
@@ -64,10 +72,7 @@ const queue = new Set<EffectRunner>();
 let scheduled = false;
 let activeEffect: EffectRunner | null = null;
 let activeScope: Scope | null = null;
-let activeContextFrame: {
-  parent: typeof activeContextFrame | null;
-  values: Map<symbol, unknown>;
-} | null = null;
+let activeContextFrame: ContextFrame | null = null;
 
 export const runtimeStats = {
   effectCreations: 0,
@@ -130,9 +135,19 @@ function flushMountQueue(): void {
       continue;
     }
 
+    // Mounts run in a microtask, outside the component that registered them.
+    const previousFrame = activeContextFrame;
+    activeContextFrame = scope.frame;
+
     for (let i = 0; i < mounts.length; i += 1) {
-      mounts[i]!();
+      try {
+        runWithScope(scope, mounts[i]!);
+      } catch (error) {
+        handleError(error, scope.frame);
+      }
     }
+
+    activeContextFrame = previousFrame;
   }
 }
 
@@ -178,6 +193,22 @@ function reportEffectError(error: unknown): void {
   queueMicrotask(() => {
     throw error;
   });
+}
+
+// Scope parents are unknown during a flush, but effects restore their context
+// frame on every run, so the nearest boundary is found through the frames.
+function handleError(error: unknown, start: ContextFrame | null): void {
+  let frame = start;
+
+  while (frame) {
+    if (frame.values.has(ERROR_HANDLER)) {
+      (frame.values.get(ERROR_HANDLER) as (error: unknown) => void)(error);
+      return;
+    }
+    frame = frame.parent;
+  }
+
+  reportEffectError(error);
 }
 
 function schedule(runner: EffectRunner): void {
@@ -242,10 +273,10 @@ function unwrapContextValue<T>(value: T): T {
   return value;
 }
 
-export function runWithContext<T, R>(context: ContextDefinition<T>, value: T, fn: () => R): R {
+function runWithFrameValue<R>(id: symbol, value: unknown, fn: () => R): R {
   const frame = {
     parent: activeContextFrame,
-    values: new Map<symbol, unknown>([[context.id, value]]),
+    values: new Map<symbol, unknown>([[id, value]]),
   };
   activeContextFrame = frame;
 
@@ -254,6 +285,14 @@ export function runWithContext<T, R>(context: ContextDefinition<T>, value: T, fn
   } finally {
     activeContextFrame = frame.parent;
   }
+}
+
+export function runWithContext<T, R>(context: ContextDefinition<T>, value: T, fn: () => R): R {
+  return runWithFrameValue(context.id, value, fn);
+}
+
+export function runWithErrorHandler<R>(handler: (error: unknown) => void, fn: () => R): R {
+  return runWithFrameValue(ERROR_HANDLER, handler, fn);
 }
 
 export function createContext<T>(defaultValue: T): ContextDefinition<T> {
@@ -283,12 +322,17 @@ export function useContext<T>(context: ContextDefinition<T>): T {
     frame = frame.parent;
   }
 
+  if (IS_DEV && !activeScope && !activeEffect) {
+    console.warn("[hel] useContext() ran outside a component, for example after an await, so it returned the default value. Read the context during setup.");
+  }
+
   return context.defaultValue;
 }
 
 export function createScope(): Scope {
   return {
     parent: activeScope,
+    frame: activeContextFrame,
     cleanups: EMPTY_CLEANUPS,
     mounts: EMPTY_MOUNTS,
     active: true,
@@ -310,6 +354,10 @@ export function onScopeCleanup(fn: () => void): void {
 }
 
 export function onCleanup(fn: () => void): void {
+  if (IS_DEV && !activeScope?.active) {
+    console.warn("[hel] onCleanup() ran outside a component, for example after an await, so it will never run. Register it during setup or before the first await.");
+  }
+
   onScopeCleanup(fn);
 }
 
@@ -355,8 +403,13 @@ export function disposeScope(scope: Scope | null): void {
     return;
   }
 
+  // One failing cleanup must not keep the others from releasing what they hold.
   for (let i = cleanups.length - 1; i >= 0; i -= 1) {
-    cleanups[i]!();
+    try {
+      cleanups[i]!();
+    } catch (error) {
+      reportEffectError(error);
+    }
   }
 }
 
@@ -531,6 +584,7 @@ export function effect(fn: () => void): () => void {
 
   // Re-runs happen in a flush, outside the provider that mounted this effect.
   const contextFrame = activeContextFrame;
+  let started = false;
 
   const runner = (() => {
     if (runner.disposed) {
@@ -547,6 +601,13 @@ export function effect(fn: () => void): () => void {
 
     try {
       fn();
+    } catch (error) {
+      // The first run happens while mounting, so whoever is mounting handles it.
+      if (!started) {
+        throw error;
+      }
+
+      handleError(error, contextFrame);
     } finally {
       activeEffect = previous;
       activeContextFrame = previousContextFrame;
@@ -555,12 +616,20 @@ export function effect(fn: () => void): () => void {
 
   runner.deps = new Set<Set<EffectRunner>>();
   runner.disposed = false;
-  runner();
   const dispose = () => {
     runner.disposed = true;
     queue.delete(runner);
     cleanup(runner);
   };
+
+  try {
+    runner();
+  } catch (error) {
+    dispose();
+    throw error;
+  }
+
+  started = true;
 
   // Without dependencies it can never run again, so there is nothing to clean
   // up and the surrounding scope still counts as static.
@@ -610,6 +679,10 @@ export function memo<T>(fn: () => T, lazy = false): () => T {
     } finally {
       activeEffect = previous;
       activeContextFrame = previousContextFrame;
+    }
+
+    if (IS_DEV && isThenable(value) && node.deps.size > 0) {
+      console.warn("[hel] A const holds a Promise and starts it again on every change, with no protection against races. Use useResource() instead.");
     }
   };
 

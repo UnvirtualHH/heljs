@@ -41,6 +41,7 @@ import {
   useContext,
   untrack,
   runWithContext,
+  runWithErrorHandler,
 } from "./core";
 export {
   attr,
@@ -72,8 +73,10 @@ export {
   useContext,
 } from "./core";
 export type { Cell, RuntimeStats } from "./core";
+export { useResource } from "./resource";
 import {
   ATTR_BINDING,
+  BOUNDARY_FAILED,
   CONTEXT_PROVIDER,
   COMPONENT_REACTIVE_PROPS,
   LIST,
@@ -82,12 +85,13 @@ import {
   TEXT_BINDING,
   type AttrBinding,
   type Dynamic,
+  type ErrorBoundaryProps,
   type KeyedList,
   type NodeFactory,
   type TemplateFactory,
   type TextBinding,
 } from "../shared";
-export type { ContextDefinition } from "../shared";
+export type { ContextDefinition, Resource, ResourceOptions } from "../shared";
 import {
   BLOCK_END,
   BLOCK_START,
@@ -106,6 +110,7 @@ import {
   openHydrationFrame,
   resetHydrationState,
   skipIgnorableNodes,
+  unwindHydrationFrames,
   warnHydrationMismatch,
 } from "./hydration";
 import { createBrowserRouter, type BrowserRouter } from "./router";
@@ -215,8 +220,16 @@ function supportsReactiveComponentProps(tag: unknown): boolean {
 
 function renderComponentWithScope(render: () => unknown): unknown {
   const scope = createScope();
-  // Setup reads must not subscribe whichever effect happens to mount the component.
-  const value = runWithScope(scope, () => untrack(render));
+  let value: unknown;
+
+  try {
+    // Setup reads must not subscribe whichever effect happens to mount the component.
+    value = runWithScope(scope, () => untrack(render));
+  } catch (error) {
+    // Nothing will ever dispose this scope, so release what setup already created.
+    disposeScope(scope);
+    throw error;
+  }
 
   // A stateless component leaves nothing to clean up, so its parent stays static.
   if (scope.cleanups.length > 0 || scope.mounts.length > 0) {
@@ -310,7 +323,36 @@ export function h(
   return element;
 }
 
-export function frag(...children: unknown[]): DocumentFragment {
+// A fragment would pull prerendered nodes out of their parent and leave nested
+// slots with nothing to claim, so hydration renders the children in place.
+function hydrateFragment(children: unknown[]): Node[] {
+  const frame = currentHydrationFrame()!;
+  const nodes: Node[] = [];
+
+  for (const child of children) {
+    const before = frame.current ? frame.current.previousSibling : frame.parent.lastChild;
+    appendChild(frame.parent, child);
+
+    if (child instanceof Node) {
+      nodes.push(child);
+      continue;
+    }
+
+    let cursor = before ? before.nextSibling : frame.parent.firstChild;
+    while (cursor && cursor !== frame.current) {
+      nodes.push(cursor);
+      cursor = cursor.nextSibling;
+    }
+  }
+
+  return nodes;
+}
+
+export function frag(...children: unknown[]): DocumentFragment | Node[] {
+  if (isHydrating()) {
+    return hydrateFragment(children);
+  }
+
   const fragment = document.createDocumentFragment();
 
   for (const child of children) {
@@ -319,6 +361,58 @@ export function frag(...children: unknown[]): DocumentFragment {
 
   return fragment;
 }
+
+export const ErrorBoundary = component((rawProps: Record<string, unknown>): any => {
+  const props = rawProps as ErrorBoundaryProps;
+  const failure = cell<{ error: unknown } | null>(null);
+  const attempt = cell(0);
+
+  const fail = (error: unknown): void => {
+    if (IS_DEV) {
+      console.error(error);
+    }
+    set(failure, { error });
+  };
+  const retry = (): void => {
+    set(failure, null);
+  };
+
+  return dynBlock(() => {
+    const failed = get(failure);
+    get(attempt);
+
+    if (failed) {
+      const { fallback } = props;
+      return untrack(() => (typeof fallback === "function" ? fallback(failed.error, retry) : fallback));
+    }
+
+    const hydrationFrame = currentHydrationFrame();
+
+    // The server failed, which says nothing about the client. There is nothing to
+    // claim either way, so the children render fresh once hydration has finished.
+    if (hydrationFrame && isCommentNode(hydrationFrame.current, BOUNDARY_FAILED)) {
+      unwindHydrationFrames(hydrationFrame);
+      set(attempt, attempt.value + 1);
+      return null;
+    }
+
+    const scope = createScope();
+    onScopeCleanup(() => disposeScope(scope));
+
+    try {
+      return runWithScope(scope, () =>
+        runWithErrorHandler(fail, () => untrack(() => frag(...(props.children ?? [])))),
+      );
+    } catch (error) {
+      disposeScope(scope);
+      if (hydrationFrame) {
+        unwindHydrationFrames(hydrationFrame);
+      }
+      fail(error);
+      return null;
+    }
+  });
+});
 
 export function mount(factory: () => unknown, target: Element): void {
   resetHydrationState();

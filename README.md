@@ -447,6 +447,7 @@ Important semantics:
 - the router only intercepts internal links that it knows about
 - external links, modifier keys, and `target` keep normal browser behavior
 - `router.view()` returns a renderable block directly
+- the page is only rebuilt when the matched route changes, or something the view reads in its own body, so `<TodoDetail id={router.params().id} />` keeps its state and focus
 - `router.isActive("/about")` can be used directly in props
 - `router.params()` returns route params for the currently matched path
 - `router.query()` returns current query params as a plain object
@@ -544,6 +545,32 @@ function CartBadge() {
 ```
 
 Reactive values in the returned object become getters. Returning a reactive value directly or in an array is a compile error, because it would be frozen.
+
+### 12. Loading data
+
+```tsx
+function PetPage(props) {
+  const pet = useResource(() => `/api/pets/${props.id}`, getJson);
+
+  return pet.loading ? <Spinner /> : <PetDetails pet={pet.value} />;
+}
+```
+
+The first function is tracked and identifies the data. The second one is not, and it gets an `AbortSignal`. When the source changes, the old request is aborted and its response ignored. Reading `value` throws if the request failed, unless you check `error` first, so a failure cannot look like empty data.
+
+There is no cache. On the server it never fetches, see [SSR-HYDRATION.md](docs/SSR-HYDRATION.md). An `async` component is a compile error.
+
+### 13. Handling errors
+
+```tsx
+<ErrorBoundary fallback={(error, retry) => <Oops error={error} onRetry={retry} />}>
+  <PetPage id={id} />
+</ErrorBoundary>
+```
+
+It catches component setup, slots, keyed rows, effects, `onMount`, and failed resources, also during SSR and hydration. Event handlers stay with the browser.
+
+Without a boundary, the error goes to `reportError`. A block or text slot that failed shows nothing until its next change, when it tries again.
 
 ## What Internally Becomes What
 
@@ -707,6 +734,7 @@ Still missing:
 - Destructuring for reactive `let` is not implemented yet.
 - A module-level `let` is not reactive, and the compiler warns when JSX reads one.
 - Hydration covers the intended path and mismatch fallback, but not every structural edge case.
+- Reads after an `await` are not tracked, and `onCleanup` and `useContext` do not work there.
 - `list(...)` and keyed `For` are the official keyed story. There is no automatic keyed compiler detection.
 
 ## Relevant Files

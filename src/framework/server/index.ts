@@ -53,12 +53,13 @@ export {
   tpl,
   untrack,
   useContext,
+  useResource,
 } from "./core";
 export type { Cell } from "./core";
 import { frag, h, renderToString, type Renderable } from "./render";
-export { frag, h, renderToString } from "./render";
+export { ErrorBoundary, frag, h, renderToString, serializeData } from "./render";
 import type { RouteDefinition, RouterOptions } from "../shared";
-export type { ContextDefinition } from "../shared";
+export type { ContextDefinition, Resource, ResourceOptions } from "../shared";
 
 export type Router = StaticRouter;
 

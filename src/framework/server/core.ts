@@ -18,6 +18,8 @@ import {
   type KeyedList,
   type NodeFactory,
   type RefBinding,
+  type Resource,
+  type ResourceOptions,
   type ShowProps,
   type TemplateFactory,
   type TextBinding,
@@ -90,6 +92,21 @@ export function memo<T>(fn: () => T, lazy = false): () => T {
 export function effect(fn: () => void): () => void {
   fn();
   return () => undefined;
+}
+
+// Rendering is synchronous, so a request could not finish before the HTML does.
+// The loading state matches what the client starts with.
+export function useResource<S, T>(
+  source: () => S,
+  _fetcher: (source: NonNullable<S>, signal: AbortSignal) => T | Promise<T>,
+  options: ResourceOptions<T> = {},
+): Resource<T> {
+  return {
+    value: options.initial,
+    error: undefined,
+    loading: !("initial" in options) && Boolean(source()),
+    refetch: () => undefined,
+  };
 }
 
 export function onCleanup(_fn: () => void): void {

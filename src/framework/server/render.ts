@@ -10,7 +10,15 @@ import {
   runWithContext,
   type Cell,
 } from "./core";
-import { BLOCK_END, BLOCK_START, CONTEXT_PROVIDER } from "../shared";
+import {
+  BLOCK_END,
+  BLOCK_START,
+  BOUNDARY_FAILED,
+  CONTEXT_PROVIDER,
+  isThenable,
+  RENDERED_PROMISE_MESSAGE,
+  type ErrorBoundaryProps,
+} from "../shared";
 
 const VOID_TAGS = new Set([
   "area",
@@ -276,6 +284,10 @@ function serializeValue(value: unknown): string {
     return "";
   }
 
+  if (isThenable(value)) {
+    throw new Error(RENDERED_PROMISE_MESSAGE);
+  }
+
   return escapeHtml(String(value));
 }
 
@@ -299,6 +311,37 @@ export function h(
     props,
     children,
   };
+}
+
+export function ErrorBoundary(rawProps: Record<string, unknown>): any {
+  const props = rawProps as ErrorBoundaryProps;
+  let html: string;
+
+  try {
+    html = serializeValue(props.children ?? []);
+  } catch (error) {
+    // Nobody sees this in a browser, so the server log is the only trace of it.
+    console.error(error);
+    const { fallback } = props;
+    const content = typeof fallback === "function" ? fallback(error, () => undefined) : fallback;
+    html = `<!--${BOUNDARY_FAILED}-->${serializeValue(content)}`;
+  }
+
+  return {
+    type: "html",
+    html: `<!--${BLOCK_START}-->${html}<!--${BLOCK_END}-->`,
+  };
+}
+
+const UNSAFE_IN_SCRIPT = new RegExp(`[<>&${String.fromCharCode(0x2028, 0x2029)}]`, "g");
+
+// Data ends up inside a <script>, where a plain JSON.stringify lets a value such
+// as "</script>" break out of it.
+export function serializeData(value: unknown): string {
+  return (JSON.stringify(value) ?? "undefined").replace(
+    UNSAFE_IN_SCRIPT,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 }
 
 export function frag(...children: Renderable[]): Renderable {

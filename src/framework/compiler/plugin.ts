@@ -186,7 +186,16 @@ function isSetupCall(node: t.Node): boolean {
     return true;
   }
 
-  if (!t.isCallExpression(node) || !t.isIdentifier(node.callee)) {
+  if (!t.isCallExpression(node)) {
+    return false;
+  }
+
+  // Only hooks count on a member call: api.createUrl(id) is usually a plain helper.
+  if (t.isMemberExpression(node.callee) && !node.callee.computed && t.isIdentifier(node.callee.property)) {
+    return HOOK_NAME.test(node.callee.property.name);
+  }
+
+  if (!t.isIdentifier(node.callee)) {
     return false;
   }
 
@@ -1224,6 +1233,17 @@ function transformComponent(
   componentName: ComponentName,
   kind: ReactiveScopeKind = "component",
 ): ComponentTransformResult {
+  if (functionPath.node.async) {
+    compilerError(
+      id,
+      componentName,
+      functionPath.node,
+      kind === "hook"
+        ? "an async use* function returns a Promise, so its values cannot stay reactive. Load data with useResource() inside a normal use* function instead."
+        : "an async component would render a Promise. Load data with useResource() instead.",
+    );
+  }
+
   const bodyPath = functionPath.get("body");
   if (!bodyPath.isBlockStatement()) {
     return {

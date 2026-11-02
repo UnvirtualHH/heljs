@@ -146,6 +146,16 @@ export function closeHydrationFrame(frame: HydrationFrame | null): void {
   }
 }
 
+// A throw leaves nested frames open. Whatever this frame still holds is replaced
+// by the code that caught it, so its cursor moves past those nodes.
+export function unwindHydrationFrames(frame: HydrationFrame): void {
+  while (hydrationStack.length > 0 && hydrationStack[hydrationStack.length - 1] !== frame) {
+    hydrationStack.pop();
+  }
+
+  frame.current = frame.boundary;
+}
+
 export function clearRemainingHydrationNodes(frame: HydrationFrame): void {
   while (frame.current && frame.current !== frame.boundary) {
     const node = frame.current;

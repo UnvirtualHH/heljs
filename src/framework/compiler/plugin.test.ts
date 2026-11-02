@@ -31,6 +31,45 @@ function transformError(code: string): Error | null {
   }
 }
 
+describe("async functions", () => {
+  it("rejects an async component", () => {
+    expect(transformError(`async function Comp() { return <div />; }`)?.message).toMatch(/async component.*useResource/);
+  });
+
+  it("rejects an async component that awaits", () => {
+    expect(transformError(`async function Comp() { const data = await load(); return <div>{data}</div>; }`)?.message).toMatch(/useResource/);
+  });
+
+  it("rejects every other way of writing an async component", () => {
+    expect(transformError(`const Comp = async () => <div />;`)?.message).toMatch(/useResource/);
+    expect(transformError(`export default async function () { return <div />; }`)?.message).toMatch(/useResource/);
+    expect(transformError(`const Comp = wrap(async () => <div />);`)?.message).toMatch(/useResource/);
+  });
+
+  it("rejects an async use* function", () => {
+    expect(transformError(`async function useThing() { let a = 1; return { a }; }`)?.message).toMatch(/async use\* function.*useResource/);
+    expect(transformError(`const useThing = async () => ({});`)?.message).toMatch(/useResource/);
+  });
+
+  it("allows async functions inside a component", () => {
+    expect(transformError(`function Comp() { let n = 0; async function save() { n = await load(); } return <button onClick={save}>{n}</button>; }`)).toBeNull();
+    expect(transformError(`async function load() { return <div />; }`)).toBeNull();
+  });
+});
+
+describe("hooks called on an object", () => {
+  it("are not re-run on a change", () => {
+    const output = transform(`function Comp(props) { const thing = api.useThing(props.id); return <p>{thing.value}</p>; }`);
+
+    expect(output).toContain("api.useThing");
+    expect(output).not.toContain("__memo");
+  });
+
+  it("does not apply to other member calls", () => {
+    expect(transform(`function Comp(props) { const url = api.createUrl(props.id); return <p>{url}</p>; }`)).toContain("__memo");
+  });
+});
+
 describe("compiler plugin", () => {
   it("tracks helper functions that read reactive let bindings", () => {
     const output = transform(`

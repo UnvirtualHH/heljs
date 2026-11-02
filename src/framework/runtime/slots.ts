@@ -50,7 +50,7 @@ import {
   tryPatchNodeInPlace,
   tryPatchNodeListInPlace,
 } from "./patch";
-import type { Dynamic, KeyedList } from "../shared";
+import { isThenable, RENDERED_PROMISE_MESSAGE, type Dynamic, type KeyedList } from "../shared";
 
 type ListEntry<T> = {
   item: Cell<T>;
@@ -94,12 +94,24 @@ function createListEntry<T>(
 
       const nextScope = createScope();
       contentScope = nextScope;
-      const node = runWithScope(nextScope, () =>
-        readSingleRenderableNode(binding.render(current, entry.index), "list()"),
-      );
+      const previous = entry.node;
+      let node: Node;
+
+      try {
+        node = runWithScope(nextScope, () =>
+          readSingleRenderableNode(binding.render(current, entry.index), "list()"),
+        );
+      } catch (error) {
+        // The old row is disposed, so keeping it on screen would show dead content.
+        if (previous?.parentNode) {
+          entry.node = document.createComment("error");
+          replaceNode(previous.parentNode, entry.node, previous);
+        }
+        throw error;
+      }
+
       flushScopeMounts(nextScope);
 
-      const previous = entry.node;
       if (!previous) {
         entry.node = node;
         return;
@@ -220,6 +232,19 @@ function readSingleRenderableNode(value: unknown, context: string): Node {
   return fragment;
 }
 
+// While hydrating, the cursor marks the position. The end of the parent can
+// already hold prerendered siblings, and closing the frame would remove the node.
+function placeNode(parent: Node, node: Node): void {
+  const frame = currentHydrationFrame(parent);
+
+  if (frame) {
+    insertNodeBefore(parent, node, frame.current);
+    return;
+  }
+
+  appendNode(parent, node);
+}
+
 function mountStaticText(parent: Node, value: string): void {
   const claimed = claimHydrationNode(parent, (node) => node.nodeType === Node.TEXT_NODE) as Text | null;
   if (claimed) {
@@ -233,7 +258,7 @@ function mountStaticText(parent: Node, value: string): void {
   if (currentHydrationFrame(parent)?.current) {
     bailHydration(parent, `text("${value}")`);
   }
-  appendNode(parent, document.createTextNode(value));
+  placeNode(parent, document.createTextNode(value));
 }
 
 // The compiler cannot always tell text from renderable content (props.children,
@@ -250,7 +275,20 @@ function mountTextSlot(parent: Node, read: () => unknown): void {
     }
 
     const probe = createScope();
-    const value = runWithScope(probe, read);
+    let value: unknown;
+
+    try {
+      value = runWithScope(probe, read);
+    } catch (error) {
+      disposeScope(probe);
+
+      // The last value is no longer true, and the slot retries on its next change.
+      if (text) {
+        text.data = "";
+        previous = "";
+      }
+      throw error;
+    }
 
     if (typeof value === "object" && value !== null) {
       upgraded = true;
@@ -275,7 +313,7 @@ function mountTextSlot(parent: Node, read: () => unknown): void {
       text = claimed ?? document.createTextNode("");
 
       if (!claimed) {
-        appendNode(parent, text);
+        placeNode(parent, text);
       }
 
       previous = claimed ? text.data : "";
@@ -308,6 +346,11 @@ function matchesHydratedProperty(element: HTMLElement, key: string, value: unkno
 
   if (normalizedKey === "class") {
     return element.className === normalizeTextValue(value);
+  }
+
+  // Properties can differ from what was rendered: href reads as an absolute URL.
+  if (typeof value === "string" && element.getAttribute(normalizedKey) === value) {
+    return true;
   }
 
   if (isDomProperty) {
@@ -447,8 +490,8 @@ function mountBlockMarkers(parent: Node): { start: Comment; end: Comment; hydrat
 
   const start = document.createComment(BLOCK_START);
   const end = document.createComment(BLOCK_END);
-  appendNode(parent, start);
-  appendNode(parent, end);
+  placeNode(parent, start);
+  placeNode(parent, end);
   return { start, end, hydrated: false };
 }
 
@@ -491,7 +534,16 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
     disposeScope(contentScope);
     const nextScope = createScope();
     contentScope = nextScope;
-    const nextNodes = runWithScope(nextScope, () => materializeNodes(read()));
+    let nextNodes: Node[];
+
+    try {
+      nextNodes = runWithScope(nextScope, () => materializeNodes(read()));
+    } catch (error) {
+      // The old content is disposed, so keeping it on screen would show dead slots.
+      replaceBlockContent(start, end, collectNodesBetween(start, end), []);
+      currentNodes = [];
+      throw error;
+    }
 
     if (wasStatic && isStaticScope(nextScope) && tryPatchNodeListInPlace(currentNodes, nextNodes)) {
       currentNodes = currentNodes.slice();
@@ -528,9 +580,9 @@ function mountBranchSlot(
 
     const read = nextKind === "consequent" ? binding.consequent : binding.alternate;
     const scope = createScope();
-    activeKind = nextKind;
 
     if (hydrated) {
+      activeKind = nextKind;
       activeScope = scope;
       const blockFrame = openHydrationFrame(end.parentNode!, "branch", end);
       if (blockFrame) {
@@ -548,7 +600,18 @@ function mountBranchSlot(
     activeScope = scope;
 
     const holder = document.createDocumentFragment();
-    runWithScope(scope, () => untrack(() => appendChild(holder, read())));
+
+    try {
+      runWithScope(scope, () => untrack(() => appendChild(holder, read())));
+    } catch (error) {
+      // No kind is active now, so the next change renders again instead of
+      // assuming that the arm it selects is already on screen.
+      activeKind = null;
+      replaceNodesBetween(end.parentNode!, start, end, [], collectNodesBetween(start, end).length);
+      throw error;
+    }
+
+    activeKind = nextKind;
     replaceNodesBetween(
       end.parentNode!,
       start,
@@ -564,12 +627,19 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
   const { start, end, hydrated: startsHydrated } = mountBlockMarkers(parent);
   let hydrated = startsHydrated;
   let currentEntries: Array<ListEntry<T>> = [];
+  let created: Array<ListEntry<T>> = [];
 
   onScopeCleanup(() => {
     for (const entry of currentEntries) {
       disposeScope(entry.scope);
     }
   });
+
+  const createEntry = (item: T, index: number, key: string | number): ListEntry<T> => {
+    const entry = createListEntry(binding, item, index, key);
+    created.push(entry);
+    return entry;
+  };
 
   const updateEntry = (entry: ListEntry<T>, item: T, index: number): void => {
     if (entry.item.value !== item) {
@@ -578,7 +648,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
     }
   };
 
-  effect(() => {
+  const update = (): void => {
     const items = binding.read();
     const nextKeys = new Array<string | number>(items.length);
     for (let index = 0; index < items.length; index += 1) {
@@ -600,7 +670,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
         listFrame.current = start.nextSibling as ChildNode | null;
       }
 
-      currentEntries = items.map((item, index) => createListEntry(binding, item, index, nextKeys[index]!));
+      currentEntries = items.map((item, index) => createEntry(item, index, nextKeys[index]!));
       closeHydrationFrame(listFrame);
       insertNodesBefore(parent, currentEntries.map((entry) => entry.node), end);
       return;
@@ -615,7 +685,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
       const freshNodes: Node[] = [];
 
       for (let index = 0; index < items.length; index += 1) {
-        const entry = createListEntry(binding, items[index]!, index, nextKeys[index]!);
+        const entry = createEntry(items[index]!, index, nextKeys[index]!);
         freshNodes.push(entry.node);
         nextEntries.push(entry);
       }
@@ -666,7 +736,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
         continue;
       }
 
-      nextEntries.push(createListEntry(binding, item, index, key));
+      nextEntries.push(createEntry(item, index, key));
     }
 
     for (const entry of previousByKey.values()) {
@@ -710,6 +780,20 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
 
     flushPendingInsertions();
     currentEntries = nextEntries;
+  };
+
+  effect(() => {
+    created = [];
+
+    try {
+      update();
+    } catch (error) {
+      // The list stays as it was, so rows created for this update have no owner.
+      for (const entry of created) {
+        disposeScope(entry.scope);
+      }
+      throw error;
+    }
   });
 }
 
@@ -795,7 +879,7 @@ export function appendChild(parent: Node, value: unknown): void {
 
   if (value instanceof Node) {
     if (value.parentNode !== parent) {
-      appendNode(parent, value);
+      placeNode(parent, value);
     }
     return;
   }
@@ -805,6 +889,10 @@ export function appendChild(parent: Node, value: unknown): void {
       appendChild(parent, item);
     }
     return;
+  }
+
+  if (isThenable(value)) {
+    throw new Error(RENDERED_PROMISE_MESSAGE);
   }
 
   mountStaticText(parent, String(value));

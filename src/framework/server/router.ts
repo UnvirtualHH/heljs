@@ -1,3 +1,4 @@
+import { dynBlock } from "./core";
 import {
   buildRouteTarget,
   findRoute,
@@ -48,14 +49,16 @@ export function createStaticRouter(
       currentParams = findRoute(routes, currentPath)?.params ?? {};
       currentQuery = nextLocation.query;
     },
-    view: () => {
-      const match = findRoute(routes, currentPath);
-      if (match) {
-        return match.route.view();
-      }
+    // The client's view is a block of its own, and hydration has to find its markers.
+    view: () =>
+      dynBlock(() => {
+        const match = findRoute(routes, currentPath);
+        if (match) {
+          return match.route.view();
+        }
 
-      return renderNotFound(currentPath);
-    },
+        return renderNotFound(currentPath);
+      }),
     isActive: (path: string) => Boolean(matchRoutePath(path, currentPath)),
   };
 }
