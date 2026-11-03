@@ -112,36 +112,25 @@ That means the built demo already exercises the real SSR -> hydration path.
 
 There is a verified external example in:
 
-- [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
+- [starter-ssr](../starter-ssr)
 
 Important rule for external SSR projects:
 
-- app code still imports from `hel/runtime`
-- the SSR build must alias `hel/runtime` to `hel/server`
+- app code always imports from `hel/runtime`
+- in an SSR build, `helMagicPlugin()` resolves that to `hel/server` by itself
 
-Example from the starter:
+The Vite config needs nothing beyond the plugin:
 
 ```ts
-import path from "node:path";
 import { defineConfig } from "vite";
 import { helMagicPlugin } from "hel/vite";
 
-export default defineConfig(({ isSsrBuild }) => ({
+export default defineConfig({
   plugins: [helMagicPlugin()],
-  resolve: {
-    alias: [
-      {
-        find: "hel/runtime",
-        replacement: isSsrBuild
-          ? "hel/server"
-          : path.resolve(__dirname, "node_modules/hel/dist/package/runtime.js"),
-      },
-    ],
-  },
-}));
+});
 ```
 
-That split is required because the compiled application code imports runtime helpers through the public runtime path, while SSR needs the server implementation behind the same surface.
+Compiled code imports its helpers from the public runtime path, and SSR needs the server implementation behind that same name, which is what the plugin takes care of.
 
 ## Router + SSR
 
@@ -244,7 +233,7 @@ Do not assume yet:
 
 ## Related Docs
 
-1. [GETTING-STARTED.md](C:/projects/hellscript/codex%20version/docs/GETTING-STARTED.md)
-2. [API-REFERENCE.md](C:/projects/hellscript/codex%20version/docs/API-REFERENCE.md)
-3. [REACTIVITY.md](C:/projects/hellscript/codex%20version/docs/REACTIVITY.md)
-4. [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
+1. [GETTING-STARTED.md](GETTING-STARTED.md)
+2. [API-REFERENCE.md](API-REFERENCE.md)
+3. [REACTIVITY.md](REACTIVITY.md)
+4. [M2-DESIGN.md](M2-DESIGN.md)

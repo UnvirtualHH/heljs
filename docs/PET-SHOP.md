@@ -112,7 +112,7 @@ Mounting ranged from 54 to 68 ms on the old runtime, so its difference is within
 
 In the order I would do them:
 
-1. The package problems, since nobody can install Hel today: `hel/vite` breaks after a real install, and the name `hel` is taken on npm.
+1. A package name, since `hel` is taken on npm.
 2. A compiler warning for `.value` read before `.error`.
 
 The comparison with other frameworks is in [PERFORMANCE.md](PERFORMANCE.md).

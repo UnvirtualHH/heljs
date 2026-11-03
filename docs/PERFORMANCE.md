@@ -79,8 +79,8 @@ The most representative benchmark scenarios in this repo are:
 
 These are tracked in:
 
-- [bench-runtime-results.json](C:/projects/hellscript/codex%20version/bench-runtime-results.json)
-- [bench-runtime.ts](C:/projects/hellscript/codex%20version/scripts/bench-runtime.ts)
+- [bench-runtime-results.json](../bench-runtime-results.json)
+- [bench-runtime.ts](../scripts/bench-runtime.ts)
 
 ## Current Runtime Bench Snapshot
 
@@ -299,7 +299,7 @@ It is not yet finished in:
 
 ## Related Docs
 
-1. [REACTIVITY.md](C:/projects/hellscript/codex%20version/docs/REACTIVITY.md)
-2. [API-REFERENCE.md](C:/projects/hellscript/codex%20version/docs/API-REFERENCE.md)
-3. [SSR-HYDRATION.md](C:/projects/hellscript/codex%20version/docs/SSR-HYDRATION.md)
-4. [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
+1. [REACTIVITY.md](REACTIVITY.md)
+2. [API-REFERENCE.md](API-REFERENCE.md)
+3. [SSR-HYDRATION.md](SSR-HYDRATION.md)
+4. [M2-DESIGN.md](M2-DESIGN.md)

@@ -121,23 +121,23 @@ Normal `<a href>` tags are the default. The router only intercepts known interna
 
 A working SSR example already exists in the repo:
 
-- [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
+- [starter-ssr](../starter-ssr)
 
 Important for external SSR projects:
 
 - client code imports from `hel/runtime`
-- the SSR build must alias `hel/runtime` to `hel/server`
+- in an SSR build, `helMagicPlugin()` resolves `hel/runtime` to `hel/server` by itself
 
-That is already implemented in [starter-ssr/vite.config.ts](C:/projects/hellscript/codex%20version/starter-ssr/vite.config.ts).
+That is already implemented in [starter-ssr/vite.config.ts](../starter-ssr/vite.config.ts).
 
 ## Verified Examples in the Repo
 
 - Client-only starter:
-  - [starter](C:/projects/hellscript/codex%20version/starter)
+  - [starter](../starter)
 - SSR starter:
-  - [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
+  - [starter-ssr](../starter-ssr)
 - Larger demo app:
-  - [src/demo](C:/projects/hellscript/codex%20version/src/demo)
+  - [src/demo](../src/demo)
 
 ## Known Limits
 
@@ -149,6 +149,6 @@ That is already implemented in [starter-ssr/vite.config.ts](C:/projects/hellscri
 ## Useful Next Documents
 
 - Architecture:
-  - [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
+  - [M2-DESIGN.md](M2-DESIGN.md)
 - Release and publish guide:
-  - [RELEASING.md](C:/projects/hellscript/codex%20version/docs/RELEASING.md)
+  - [RELEASING.md](RELEASING.md)

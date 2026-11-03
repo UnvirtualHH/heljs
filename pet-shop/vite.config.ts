@@ -1,4 +1,3 @@
-import path from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import { helMagicPlugin } from "hel/vite";
 
@@ -29,14 +28,6 @@ function apiPlugin(): Plugin {
   };
 }
 
-export default defineConfig(({ isSsrBuild }) => ({
+export default defineConfig({
   plugins: [helMagicPlugin(), apiPlugin()],
-  resolve: {
-    alias: [
-      {
-        find: "hel/runtime",
-        replacement: isSsrBuild ? "hel/server" : path.resolve(__dirname, "node_modules/hel/dist/package/runtime.js"),
-      },
-    ],
-  },
-}));
+});

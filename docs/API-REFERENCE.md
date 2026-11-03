@@ -426,7 +426,7 @@ These constraints are part of the current public behavior and should be treated 
 
 ## Recommended Reading Order
 
-1. [GETTING-STARTED.md](C:/projects/hellscript/codex%20version/docs/GETTING-STARTED.md)
-2. [README.md](C:/projects/hellscript/codex%20version/README.md)
-3. [RELEASING.md](C:/projects/hellscript/codex%20version/docs/RELEASING.md)
-4. [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
+1. [GETTING-STARTED.md](GETTING-STARTED.md)
+2. [README.md](../README.md)
+3. [RELEASING.md](RELEASING.md)
+4. [M2-DESIGN.md](M2-DESIGN.md)

@@ -41,3 +41,6 @@ jobs:
 
       - name: Verify Pet Shop
         run: npm run verify:pet-shop
+
+      - name: Verify a Fresh Install
+        run: npm run verify:install

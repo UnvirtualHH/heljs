@@ -16,14 +16,14 @@ The current state is a usable M2 prototype with client rendering, SSR HTML outpu
 
 Additional docs:
 
-- Getting started: [GETTING-STARTED.md](C:/projects/hellscript/codex%20version/docs/GETTING-STARTED.md)
-- API reference: [API-REFERENCE.md](C:/projects/hellscript/codex%20version/docs/API-REFERENCE.md)
-- SSR and hydration: [SSR-HYDRATION.md](C:/projects/hellscript/codex%20version/docs/SSR-HYDRATION.md)
-- Reactivity model: [REACTIVITY.md](C:/projects/hellscript/codex%20version/docs/REACTIVITY.md)
-- Performance guide: [PERFORMANCE.md](C:/projects/hellscript/codex%20version/docs/PERFORMANCE.md)
-- Limits and non-goals: [LIMITS-AND-NON-GOALS.md](C:/projects/hellscript/codex%20version/docs/LIMITS-AND-NON-GOALS.md)
-- Release and publish flow: [RELEASING.md](C:/projects/hellscript/codex%20version/docs/RELEASING.md)
-- Architecture: [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
+- Getting started: [GETTING-STARTED.md](docs/GETTING-STARTED.md)
+- API reference: [API-REFERENCE.md](docs/API-REFERENCE.md)
+- SSR and hydration: [SSR-HYDRATION.md](docs/SSR-HYDRATION.md)
+- Reactivity model: [REACTIVITY.md](docs/REACTIVITY.md)
+- Performance guide: [PERFORMANCE.md](docs/PERFORMANCE.md)
+- Limits and non-goals: [LIMITS-AND-NON-GOALS.md](docs/LIMITS-AND-NON-GOALS.md)
+- Release and publish flow: [RELEASING.md](docs/RELEASING.md)
+- Architecture: [M2-DESIGN.md](docs/M2-DESIGN.md)
 
 ## See It in a Real App
 
@@ -33,31 +33,31 @@ Additional docs:
 
 The active structure is now split by responsibility:
 
-- [src/demo](C:/projects/hellscript/codex%20version/src/demo)
+- [src/demo](src/demo)
   - demo app, pages, data, entry points, styles
-- [src/framework/compiler](C:/projects/hellscript/codex%20version/src/framework/compiler)
+- [src/framework/compiler](src/framework/compiler)
   - AST transform and compiler metrics
-- [src/framework/runtime](C:/projects/hellscript/codex%20version/src/framework/runtime)
+- [src/framework/runtime](src/framework/runtime)
   - client runtime, DOM, hydration, router, slots
-- [src/framework/server](C:/projects/hellscript/codex%20version/src/framework/server)
+- [src/framework/server](src/framework/server)
   - SSR runtime, router, string renderer
-- [src/framework/package](C:/projects/hellscript/codex%20version/src/framework/package)
+- [src/framework/package](src/framework/package)
   - package entry points for external projects
 
 Active framework entry points are:
 
-- [src/framework/compiler/plugin.ts](C:/projects/hellscript/codex%20version/src/framework/compiler/plugin.ts)
-- [src/framework/runtime/index.ts](C:/projects/hellscript/codex%20version/src/framework/runtime/index.ts)
-- [src/framework/server/index.ts](C:/projects/hellscript/codex%20version/src/framework/server/index.ts)
-- [src/framework/package/runtime.ts](C:/projects/hellscript/codex%20version/src/framework/package/runtime.ts)
-- [src/framework/package/server.ts](C:/projects/hellscript/codex%20version/src/framework/package/server.ts)
-- [src/framework/package/vite.ts](C:/projects/hellscript/codex%20version/src/framework/package/vite.ts)
+- [src/framework/compiler/plugin.ts](src/framework/compiler/plugin.ts)
+- [src/framework/runtime/index.ts](src/framework/runtime/index.ts)
+- [src/framework/server/index.ts](src/framework/server/index.ts)
+- [src/framework/package/runtime.ts](src/framework/package/runtime.ts)
+- [src/framework/package/server.ts](src/framework/package/server.ts)
+- [src/framework/package/vite.ts](src/framework/package/vite.ts)
 
 The only files intentionally left flat in `src/framework` are:
 
-- [shared.ts](C:/projects/hellscript/codex%20version/src/framework/shared.ts)
-- [jsx.d.ts](C:/projects/hellscript/codex%20version/src/framework/jsx.d.ts)
-- [react-bench-modules.d.ts](C:/projects/hellscript/codex%20version/src/framework/react-bench-modules.d.ts)
+- [shared.ts](src/framework/shared.ts)
+- [jsx.d.ts](src/framework/jsx.d.ts)
+- [react-bench-modules.d.ts](src/framework/react-bench-modules.d.ts)
 
 ## Running the Project
 
@@ -112,8 +112,10 @@ npm install
 npm run build:package
 
 # in the other project
-npm install ../hel
+npm install ../heljs
 ```
+
+That links the folder. To get exactly what a release would contain, run `npm pack` in the Hel repo and install the `.tgz` file. Only the runtime, the compiler's Babel packages, and `vite` as a peer come along.
 
 Example imports:
 
@@ -125,8 +127,8 @@ import { helMagicPlugin } from "hel/vite";
 
 Verified external consumers live in this repo as well:
 
-- [starter](C:/projects/hellscript/codex%20version/starter)
-- [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
+- [starter](starter)
+- [starter-ssr](starter-ssr)
 
 Those starters are built and typechecked as separate projects instead of relying on internal source aliases.
 
@@ -140,11 +142,16 @@ Those starters are built and typechecked as separate projects instead of relying
 
 Important for external SSR consumers:
 
-- client code still imports from `hel/runtime`
-- the SSR build must alias `hel/runtime` to `hel/server`
-- that wiring is already shown in [starter-ssr/vite.config.ts](C:/projects/hellscript/codex%20version/starter-ssr/vite.config.ts)
+- app code always imports from `hel/runtime`
+- in an SSR build, `helMagicPlugin()` resolves that to `hel/server` by itself
 
-For fast package verification there are now two scripts:
+To check what a user would really get, this installs the tarball into a fresh project outside this repository, then typechecks, builds, renders, and hydrates it:
+
+```bash
+npm run verify:install
+```
+
+For fast package verification there are now two more scripts:
 
 ```bash
 npm run verify:package

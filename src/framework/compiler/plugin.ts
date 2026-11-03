@@ -95,6 +95,7 @@ type DerivedInfo = {
 type ComponentName = string;
 
 const RUNTIME_SOURCE = "hel/runtime";
+const SERVER_SOURCE = "hel/server";
 const RUNTIME_IMPORT_SOURCES = new Set([RUNTIME_SOURCE, "hel"]);
 const COMPONENT_NAME = /^[A-Z]/;
 const HOOK_NAME = /^use[A-Z]/;
@@ -2206,6 +2207,15 @@ export function helMagicPlugin(): Plugin {
   return {
     name: "hel-magic-plugin",
     enforce: "pre",
+    // App code and compiled output import the runtime, and a server build needs its
+    // server implementation behind that same name.
+    resolveId(source, importer, options) {
+      if (options?.ssr && RUNTIME_IMPORT_SOURCES.has(source)) {
+        return this.resolve(SERVER_SOURCE, importer, { ...options, skipSelf: true });
+      }
+
+      return null;
+    },
     transform(code, id) {
       if (!shouldTransform(code, id)) {
         return null;
