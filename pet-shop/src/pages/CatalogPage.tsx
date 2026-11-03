@@ -1,4 +1,4 @@
-import { For, onCleanup } from "hel/runtime";
+import { For, onCleanup } from "heljs/runtime";
 import { PetCard } from "../components/PetCard";
 import { ErrorNotice, Spinner } from "../components/ui";
 import { useApi } from "../lib/api";

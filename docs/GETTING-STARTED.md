@@ -39,7 +39,7 @@ Minimal `package.json` excerpt:
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "hel": "file:../hel"
+    "heljs": "file:../heljs"
   }
 }
 ```
@@ -50,7 +50,7 @@ Minimal `package.json` excerpt:
 
 ```ts
 import { defineConfig } from "vite";
-import { helMagicPlugin } from "hel/vite";
+import { helMagicPlugin } from "heljs/vite";
 
 export default defineConfig({
   plugins: [helMagicPlugin()],
@@ -62,7 +62,7 @@ export default defineConfig({
 `src/main.tsx`:
 
 ```tsx
-import { h, mount } from "hel/runtime";
+import { h, mount } from "heljs/runtime";
 
 function App() {
   let count = 0;
@@ -95,7 +95,7 @@ npm run dev
 ## Minimal Router Example
 
 ```tsx
-import { createRouter, h, mount } from "hel/runtime";
+import { createRouter, h, mount } from "heljs/runtime";
 
 const router = createRouter([
   { path: "/", view: () => <h1>Home</h1> },
@@ -125,8 +125,8 @@ A working SSR example already exists in the repo:
 
 Important for external SSR projects:
 
-- client code imports from `hel/runtime`
-- in an SSR build, `helMagicPlugin()` resolves `hel/runtime` to `hel/server` by itself
+- client code imports from `heljs/runtime`
+- in an SSR build, `helMagicPlugin()` resolves `heljs/runtime` to `heljs/server` by itself
 
 That is already implemented in [starter-ssr/vite.config.ts](../starter-ssr/vite.config.ts).
 

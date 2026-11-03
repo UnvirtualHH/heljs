@@ -11,7 +11,7 @@ import {
   set,
   store,
   useContext,
-} from "hel/runtime";
+} from "heljs/runtime";
 
 const flush = async () => {
   await new Promise<void>((resolve) => queueMicrotask(resolve));

@@ -1,4 +1,4 @@
-import { For } from "hel/runtime";
+import { For } from "heljs/runtime";
 import { ApiError, postJson, useApi } from "../lib/api";
 import { reviewsUrl } from "../lib/urls";
 import type { Review } from "../types";

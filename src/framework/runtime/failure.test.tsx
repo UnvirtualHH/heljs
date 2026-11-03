@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createContext, effect, list, mount, onCleanup, onMount, useContext } from "hel/runtime";
+import { createContext, effect, list, mount, onCleanup, onMount, useContext } from "heljs/runtime";
 
 const flush = async () => {
   await new Promise<void>((resolve) => queueMicrotask(resolve));

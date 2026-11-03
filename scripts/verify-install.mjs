@@ -2,7 +2,7 @@
 // user would, so nothing can resolve through this repository's node_modules. Then it
 // typechecks, builds for client and server, renders, and hydrates the result.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -145,6 +145,8 @@ try {
 
   run("install the tarball", `npm install --no-audit --no-fund "./${tarball}" typescript`);
 
+  check("the license came along", existsSync(path.join(project, "node_modules", name, "LICENSE")));
+
   const installed = readFileSync(path.join(project, "package-lock.json"), "utf8");
   check("vite came with the package", installed.includes('"node_modules/vite"'));
   for (const unwanted of ["node_modules/react", "node_modules/vue", "node_modules/solid-js"]) {
@@ -153,7 +155,7 @@ try {
 
   run("typecheck", "npx tsc --noEmit");
   run("client build", "npx vite build --outDir dist/client");
-  run("server build, with hel/runtime resolved to the server", "npx vite build --ssr src/entry-server.tsx --outDir dist/server");
+  run("server build, with heljs/runtime resolved to the server", "npx vite build --ssr src/entry-server.tsx --outDir dist/server");
 
   const consoleError = console.error;
   console.error = () => {};

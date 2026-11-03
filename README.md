@@ -100,9 +100,9 @@ The repo build and the package build are intentionally separate:
 
 The current package entry points are:
 
-- `hel` or `hel/runtime`
-- `hel/server`
-- `hel/vite`
+- `heljs` or `heljs/runtime`
+- `heljs/server`
+- `heljs/vite`
 
 For a local install in another project, the current flow is for example:
 
@@ -120,9 +120,9 @@ That links the folder. To get exactly what a release would contain, run `npm pac
 Example imports:
 
 ```ts
-import { mount, h } from "hel";
-import { renderToString } from "hel/server";
-import { helMagicPlugin } from "hel/vite";
+import { mount, h } from "heljs";
+import { renderToString } from "heljs/server";
+import { helMagicPlugin } from "heljs/vite";
 ```
 
 Verified external consumers live in this repo as well:
@@ -136,14 +136,14 @@ Those starters are built and typechecked as separate projects instead of relying
 
 `starter-ssr` shows the current SSR path as an external project:
 
-- `hel/runtime` in the client build
-- `hel/server` in the SSR build
+- `heljs/runtime` in the client build
+- `heljs/server` in the SSR build
 - a prerender step via a small `entry-server.tsx`
 
 Important for external SSR consumers:
 
-- app code always imports from `hel/runtime`
-- in an SSR build, `helMagicPlugin()` resolves that to `hel/server` by itself
+- app code always imports from `heljs/runtime`
+- in an SSR build, `helMagicPlugin()` resolves that to `heljs/server` by itself
 
 To check what a user would really get, this installs the tarball into a fresh project outside this repository, then typechecks, builds, renders, and hydrates it:
 
@@ -319,7 +319,7 @@ That is the current **unkeyed** list variant. It is fine for simple cases, but i
 If you want stable keys and DOM reuse on reorder, use the explicit `list(...)` API:
 
 ```tsx
-import { list } from "hel/runtime";
+import { list } from "heljs/runtime";
 
 <ul>
   {list(
@@ -344,7 +344,7 @@ Pragmatically this means:
 - optional `For` as a control-flow helper over both styles
 
 ```tsx
-import { For } from "hel/runtime";
+import { For } from "heljs/runtime";
 
 <ul>
   <For each={todos} key={(todo) => todo.id}>
@@ -366,7 +366,7 @@ Without `key`, `For` simply renders through `map(...)`. With `key`, it uses keye
 For branches there is also optional `Show`:
 
 ```tsx
-import { Show } from "hel/runtime";
+import { Show } from "heljs/runtime";
 
 <Show when={visible} fallback={<p>Hidden</p>}>
   <section>Visible</section>
@@ -410,7 +410,7 @@ A deeper official store with a setter API like `setTodos(i, "done", true)` is st
 For arrays and objects there is also a small proxy store:
 
 ```tsx
-import { store } from "hel/runtime";
+import { store } from "heljs/runtime";
 
 const todos = store([
   { title: "Ship Hel", done: false },
@@ -433,7 +433,7 @@ Important semantics:
 The current router is intentionally small:
 
 ```tsx
-import { createRouter } from "hel/runtime";
+import { createRouter } from "heljs/runtime";
 
 const router = createRouter([
   { path: "/", view: () => <Home /> },
@@ -509,7 +509,7 @@ Intentionally not included yet:
 Hel now has a small context API for shared subtree state.
 
 ```tsx
-import { createContext, useContext } from "hel/runtime";
+import { createContext, useContext } from "heljs/runtime";
 
 const AuthContext = createContext({ role: "guest" });
 
@@ -765,3 +765,7 @@ Still missing:
 - `src/demo/pages/*`: split demo pages
 - `src/demo/components/*`: reusable demo building blocks
 - `docs/M2-DESIGN.md`: architecture and next steps toward hydration and SSR
+
+## License
+
+[MIT](LICENSE)

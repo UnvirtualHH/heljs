@@ -1,4 +1,4 @@
-import { createRouter } from "hel/runtime";
+import { createRouter } from "heljs/runtime";
 import { AboutPage } from "./pages/AboutPage";
 import { DocsPage } from "./pages/DocsPage";
 import { ExamplesPage } from "./pages/ExamplesPage";

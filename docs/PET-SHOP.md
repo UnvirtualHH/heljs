@@ -10,7 +10,7 @@ It exists to answer the question from [DESIGN-DECISIONS.md](DESIGN-DECISIONS.md)
 
 **The promise held, but only after 13 bugs in the framework were fixed.** The finished shop has about 1,300 lines of application code and uses no `cell`, `get`, `set`, `effect`, `memo`, or `untrack` at all.
 
-| From `hel/runtime` | Uses |
+| From `heljs/runtime` | Uses |
 | --- | --- |
 | `For` | 8 |
 | `useResource`, through one small `useApi` helper | 1 |
@@ -112,7 +112,7 @@ Mounting ranged from 54 to 68 ms on the old runtime, so its difference is within
 
 In the order I would do them:
 
-1. A package name, since `hel` is taken on npm.
+1. Publishing the package.
 2. A compiler warning for `.value` read before `.error`.
 
 The comparison with other frameworks is in [PERFORMANCE.md](PERFORMANCE.md).

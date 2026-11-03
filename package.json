@@ -1,7 +1,8 @@
 {
-  "name": "hel",
+  "name": "heljs",
   "private": false,
   "version": "0.1.0",
+  "license": "MIT",
   "description": "A compiler-first UI framework without a virtual DOM: plain let is reactive state, in plain TSX.",
   "keywords": [
     "ui",

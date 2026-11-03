@@ -20,8 +20,8 @@ It is not a full meta-framework data loading model, but see [Data on the Server]
 
 At build time there are two execution targets:
 
-- `hel/runtime` for the browser
-- `hel/server` for SSR
+- `heljs/runtime` for the browser
+- `heljs/server` for SSR
 
 The important rule is:
 
@@ -62,7 +62,7 @@ The intended result is:
 ### Client
 
 ```ts
-import { hydrate, mount } from "hel/runtime";
+import { hydrate, mount } from "heljs/runtime";
 ```
 
 - use `mount(...)` when there is no prerendered HTML
@@ -87,7 +87,7 @@ if (root.firstChild) {
 ### Server
 
 ```ts
-import { renderToString } from "hel/server";
+import { renderToString } from "heljs/server";
 ```
 
 Example:
@@ -116,14 +116,14 @@ There is a verified external example in:
 
 Important rule for external SSR projects:
 
-- app code always imports from `hel/runtime`
-- in an SSR build, `helMagicPlugin()` resolves that to `hel/server` by itself
+- app code always imports from `heljs/runtime`
+- in an SSR build, `helMagicPlugin()` resolves that to `heljs/server` by itself
 
 The Vite config needs nothing beyond the plugin:
 
 ```ts
 import { defineConfig } from "vite";
-import { helMagicPlugin } from "hel/vite";
+import { helMagicPlugin } from "heljs/vite";
 
 export default defineConfig({
   plugins: [helMagicPlugin()],
@@ -163,7 +163,7 @@ To have data in the HTML, load it first and pass it in:
 
 ```tsx
 // entry-server.tsx
-import { renderToString, serializeData } from "hel/server";
+import { renderToString, serializeData } from "heljs/server";
 
 const pets = await api.pets();
 const html = renderToString(() => <App pets={pets} />);

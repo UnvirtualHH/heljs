@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mount } from "hel/runtime";
+import { mount } from "heljs/runtime";
 import { handleApi, resetApi } from "../server/api";
 import { App } from "../src/App";
 import { router } from "../src/router";

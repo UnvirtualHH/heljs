@@ -1,7 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { h, hydrate } from "hel/runtime";
+import { h, hydrate } from "heljs/runtime";
 import { handleApi, resetApi } from "../server/api";
 import { App } from "../src/App";
 import { router } from "../src/router";

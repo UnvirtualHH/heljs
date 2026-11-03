@@ -1,4 +1,4 @@
-import { createRouter, ErrorBoundary } from "hel/runtime";
+import { createRouter, ErrorBoundary } from "heljs/runtime";
 import { ErrorNotice } from "./components/ui";
 import { AdminPage } from "./pages/AdminPage";
 import { CartPage } from "./pages/CartPage";

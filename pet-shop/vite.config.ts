@@ -1,5 +1,5 @@
 import { defineConfig, type Plugin } from "vite";
-import { helMagicPlugin } from "hel/vite";
+import { helMagicPlugin } from "heljs/vite";
 
 // In development the API runs inside Vite, with a delay so loading states show.
 function apiPlugin(): Plugin {

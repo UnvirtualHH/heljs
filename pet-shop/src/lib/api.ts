@@ -1,4 +1,4 @@
-import { createContext, useContext, useResource } from "hel/runtime";
+import { createContext, useContext, useResource } from "heljs/runtime";
 import { session } from "../state/session";
 
 export class ApiError extends Error {

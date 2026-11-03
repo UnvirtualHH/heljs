@@ -1,4 +1,4 @@
-import { renderToString, serializeData } from "hel/server";
+import { renderToString, serializeData } from "heljs/server";
 import { handleApi } from "../server/api";
 import { App } from "./App";
 import { catalogUrl, ORDERS_URL, orderUrl, petUrl, relatedUrl, reviewsUrl } from "./lib/urls";

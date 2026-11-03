@@ -1,4 +1,4 @@
-import { For, Show, createContext, store, useContext } from "hel/runtime";
+import { For, Show, createContext, store, useContext } from "heljs/runtime";
 
 type PlaygroundTodo = {
   id: string;

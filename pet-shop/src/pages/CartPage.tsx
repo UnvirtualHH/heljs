@@ -1,4 +1,4 @@
-import { For } from "hel/runtime";
+import { For } from "heljs/runtime";
 import { money } from "../lib/urls";
 import { cart, type CartLine } from "../state/cart";
 

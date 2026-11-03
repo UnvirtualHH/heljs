@@ -1,4 +1,4 @@
-import { For, Show, createRouter, store } from "hel/runtime";
+import { For, Show, createRouter, store } from "heljs/runtime";
 
 type Story = {
   id: string;
@@ -37,7 +37,7 @@ export function App() {
       <header class="hero">
         <p class="eyebrow">Hel SSR starter</p>
         <h1>SSR Consumer Example</h1>
-        <p class="copy">This project consumes `hel`, `hel/server` and `hel/vite` outside the framework workspace.</p>
+        <p class="copy">This project consumes `heljs`, `heljs/server` and `heljs/vite` outside the framework workspace.</p>
       </header>
 
       <nav class="nav">

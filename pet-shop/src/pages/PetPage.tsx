@@ -1,4 +1,4 @@
-import { For } from "hel/runtime";
+import { For } from "heljs/runtime";
 import { PetCard } from "../components/PetCard";
 import { ReviewList } from "../components/ReviewList";
 import { Spinner } from "../components/ui";

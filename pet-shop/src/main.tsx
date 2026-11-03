@@ -1,5 +1,5 @@
 import "./styles.css";
-import { hydrate, mount } from "hel/runtime";
+import { hydrate, mount } from "heljs/runtime";
 import { App } from "./App";
 
 declare global {

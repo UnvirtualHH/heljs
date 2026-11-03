@@ -1,6 +1,6 @@
 import path from "node:path";
 import { defineConfig } from "vitest/config";
-import { helMagicPlugin } from "hel/vite";
+import { helMagicPlugin } from "heljs/vite";
 
 export default defineConfig({
   plugins: [helMagicPlugin()],
@@ -11,8 +11,8 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: "hel/runtime",
-        replacement: path.resolve(__dirname, "node_modules/hel/dist/package/runtime.js"),
+        find: "heljs/runtime",
+        replacement: path.resolve(__dirname, "node_modules/heljs/dist/package/runtime.js"),
       },
     ],
   },

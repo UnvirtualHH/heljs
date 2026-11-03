@@ -1,4 +1,4 @@
-import { createRouter, effect, store, untrack } from "hel/runtime";
+import { createRouter, effect, store, untrack } from "heljs/runtime";
 import { readInitialState, STORAGE_KEY, createId, todayLabel } from "./data";
 import { AccentBadges } from "./components/AccentBadges";
 import { AboutPage } from "./pages/AboutPage";

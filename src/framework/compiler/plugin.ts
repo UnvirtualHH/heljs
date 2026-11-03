@@ -94,9 +94,9 @@ type DerivedInfo = {
 
 type ComponentName = string;
 
-const RUNTIME_SOURCE = "hel/runtime";
-const SERVER_SOURCE = "hel/server";
-const RUNTIME_IMPORT_SOURCES = new Set([RUNTIME_SOURCE, "hel"]);
+const RUNTIME_SOURCE = "heljs/runtime";
+const SERVER_SOURCE = "heljs/server";
+const RUNTIME_IMPORT_SOURCES = new Set([RUNTIME_SOURCE, "heljs"]);
 const COMPONENT_NAME = /^[A-Z]/;
 const HOOK_NAME = /^use[A-Z]/;
 const FACTORY_NAME = /^create[A-Z]/;

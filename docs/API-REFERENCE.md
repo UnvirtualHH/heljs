@@ -4,11 +4,11 @@ This is the current public API surface for `Hel`. It describes what is available
 
 The public entry points are:
 
-- `hel` or `hel/runtime`
-- `hel/server`
-- `hel/vite`
+- `heljs` or `heljs/runtime`
+- `heljs/server`
+- `heljs/vite`
 
-## `hel` / `hel/runtime`
+## `heljs` / `heljs/runtime`
 
 ### Rendering
 
@@ -340,14 +340,14 @@ Not included yet:
 - guards
 - loaders or actions
 
-## `hel/server`
+## `heljs/server`
 
 ### `renderToString(render)`
 
 Renders a component tree to an HTML string for SSR.
 
 ```ts
-import { renderToString } from "hel/server";
+import { renderToString } from "heljs/server";
 
 const html = renderToString(() => <App />);
 ```
@@ -380,7 +380,7 @@ const page = `${html}<script>window.__DATA__ = ${serializeData({ pets })}</scrip
 
 ### Shared SSR exports
 
-`hel/server` also exposes the same small helper surface needed by compiled SSR output, including:
+`heljs/server` also exposes the same small helper surface needed by compiled SSR output, including:
 
 - `h`
 - `frag`
@@ -392,7 +392,7 @@ const page = `${html}<script>window.__DATA__ = ${serializeData({ pets })}</scrip
 - `useResource`
 - `ErrorBoundary`
 
-## `hel/vite`
+## `heljs/vite`
 
 ### `helMagicPlugin()`
 
@@ -400,7 +400,7 @@ Vite plugin that applies the Hel compiler transform.
 
 ```ts
 import { defineConfig } from "vite";
-import { helMagicPlugin } from "hel/vite";
+import { helMagicPlugin } from "heljs/vite";
 
 export default defineConfig({
   plugins: [helMagicPlugin()],

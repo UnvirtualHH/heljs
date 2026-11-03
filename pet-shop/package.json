@@ -13,6 +13,6 @@
     "typecheck": "node ../node_modules/typescript/bin/tsc --noEmit"
   },
   "dependencies": {
-    "hel": "file:.."
+    "heljs": "file:.."
   }
 }

@@ -48,7 +48,7 @@ That matters because the framework is intentionally trying to stay small.
 
 - ESM-only
 - Vite 6 only, the one version it is tested with
-- not published yet, because the name `hel` is taken on npm
+- not published yet
 - no CJS output
 - no final semver policy yet
 

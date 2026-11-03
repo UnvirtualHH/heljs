@@ -14,7 +14,7 @@ function transform(code: string): string {
 // exercise the same compiled component.
 function compile(source: string, runtime: object, name: string): (props: object) => unknown {
   const body = transform(source).replace(
-    /import \{([^}]*)\} from "hel\/runtime";/,
+    /import \{([^}]*)\} from "heljs\/runtime";/,
     (_, names: string) => `const {${names.replaceAll(" as ", ": ")}} = __runtime;`,
   );
   return new Function("__runtime", `${body}\nreturn ${name};`)(runtime);
@@ -66,7 +66,7 @@ describe("compiled server output", () => {
     const App = new Function(
       "__calls",
       "__runtime",
-      `${transform(source).replace(/import \{([^}]*)\} from "hel\/runtime";/, (_, names: string) => `const {${names.replaceAll(" as ", ": ")}} = __runtime;`)}\nreturn App;`,
+      `${transform(source).replace(/import \{([^}]*)\} from "heljs\/runtime";/, (_, names: string) => `const {${names.replaceAll(" as ", ": ")}} = __runtime;`)}\nreturn App;`,
     )(calls, serverRuntime);
 
     const html = serverRuntime.renderToString(() => serverRuntime.h(App, null));
@@ -111,7 +111,7 @@ describe("compiled server output", () => {
 
   it("gives a deep context consumer the provider value", () => {
     const html = renderOnServer(`
-      import { createContext, useContext } from "hel/runtime";
+      import { createContext, useContext } from "heljs/runtime";
       const Theme = createContext("default");
       function Consumer() { const value = useContext(Theme); return <em>{value}</em>; }
       function App() {
@@ -134,7 +134,7 @@ describe("compiled server output", () => {
 
   it("does not render an unused JSX fallback", () => {
     const html = renderOnServer(`
-      import { Show } from "hel/runtime";
+      import { Show } from "heljs/runtime";
       function App() { return <main><Show when={true} fallback={<u>hidden</u>}><b>shown</b></Show></main>; }
     `);
 
@@ -146,7 +146,7 @@ describe("compiled server output", () => {
 describe("compiled hydration", () => {
   it("attaches row handlers of a compiled keyed list", async () => {
     const root = hydrateFromServer(`
-      import { list } from "hel/runtime";
+      import { list } from "heljs/runtime";
       function App() {
         let items = [{ id: "a" }, { id: "b" }];
         let picked = "";
@@ -167,7 +167,7 @@ describe("compiled hydration", () => {
 
   it("keeps the prerendered rows of a compiled keyed list", () => {
     const source = `
-      import { list } from "hel/runtime";
+      import { list } from "heljs/runtime";
       function App() {
         let items = [{ id: "a" }];
         return <ul>{list(() => items, (item) => item.id, (item) => <li>{item.id}</li>)}</ul>;
@@ -239,7 +239,7 @@ describe("compiled hydration", () => {
 
   it("hydrates Show and For without mismatch warnings and stays reactive", async () => {
     const root = hydrateFromServer(`
-      import { For, Show } from "hel/runtime";
+      import { For, Show } from "heljs/runtime";
       function App() {
         let visible = true;
         let items = ["a", "b"];
@@ -263,7 +263,7 @@ describe("compiled hydration", () => {
 
   it("hydrates a keyed For with an empty list and a following sibling", () => {
     const root = hydrateFromServer(`
-      import { For } from "hel/runtime";
+      import { For } from "heljs/runtime";
       function App() {
         let items = [];
         return (
@@ -297,7 +297,7 @@ describe("compiled hydration", () => {
 
   it("gives a later mounted consumer the provider value after hydration", async () => {
     const root = hydrateFromServer(`
-      import { createContext, useContext } from "hel/runtime";
+      import { createContext, useContext } from "heljs/runtime";
       const Theme = createContext("default");
       function Consumer() { const value = useContext(Theme); return <em>{value}</em>; }
       function Toggle() {
@@ -387,7 +387,7 @@ describe("compiled hydration", () => {
 
 describe("ErrorBoundary across server and client", () => {
   const SOURCE = `
-    import { ErrorBoundary } from "hel/runtime";
+    import { ErrorBoundary } from "heljs/runtime";
     function Thing() { return <b>{__side.boom()}</b>; }
     function App() {
       let clicks = 0;
@@ -473,7 +473,7 @@ describe("ErrorBoundary across server and client", () => {
 
   it("restores the context after a failure on the server", () => {
     const html = renderOnServer(`
-      import { createContext, ErrorBoundary, useContext } from "hel/runtime";
+      import { createContext, ErrorBoundary, useContext } from "heljs/runtime";
       const Theme = createContext("default");
       function Bad() { throw new Error("nope"); }
       function Nested() { return <Theme.Provider value="inner"><Bad /></Theme.Provider>; }
@@ -490,7 +490,7 @@ describe("ErrorBoundary across server and client", () => {
 
 describe("useResource across server and client", () => {
   const source = (options = "") => `
-    import { useResource } from "hel/runtime";
+    import { useResource } from "heljs/runtime";
     function App() {
       let clicks = 0;
       const pet = useResource(() => "/pets/1", __load.fetcher${options});
@@ -501,7 +501,7 @@ describe("useResource across server and client", () => {
   function run(code: string, fetcher: (url: string) => Promise<string>) {
     const build = (runtime: object) => {
       const body = transform(code).replace(
-        /import \{([^}]*)\} from "hel\/runtime";/,
+        /import \{([^}]*)\} from "heljs\/runtime";/,
         (_, names: string) => `const {${names.replaceAll(" as ", ": ")}} = __runtime;`,
       );
       return new Function("__runtime", "__load", `${body}\nreturn App;`)(runtime, { fetcher });
@@ -554,7 +554,7 @@ describe("useResource across server and client", () => {
   it("fetches after hydration when the source changes", async () => {
     const urls: string[] = [];
     const code = `
-      import { useResource } from "hel/runtime";
+      import { useResource } from "heljs/runtime";
       function App() {
         let id = 1;
         const pet = useResource(() => "/pets/" + id, __load.fetcher, { initial: "preloaded" });
@@ -606,7 +606,7 @@ describe("promises on the server", () => {
 describe("what the pet shop needed from hydration", () => {
   it("claims the children of a provider with a dynamic value", async () => {
     const source = `
-      import { createContext, useContext } from "hel/runtime";
+      import { createContext, useContext } from "heljs/runtime";
       const Theme = createContext("default");
       function Reader() { return <b>{useContext(Theme)}</b>; }
       function App(props) {
@@ -727,7 +727,7 @@ describe("what the pet shop needed from hydration", () => {
       return "data";
     };
     const source = `
-      import { useResource } from "hel/runtime";
+      import { useResource } from "heljs/runtime";
       function App() {
         const pet = useResource(() => "/pets/1", __fetcher, { initial: undefined });
         return <p>{pet.loading ? "loading" : pet.value}</p>;
@@ -735,7 +735,7 @@ describe("what the pet shop needed from hydration", () => {
     `;
     const build = (runtime: object) => {
       const body = transform(source).replace(
-        /import \{([^}]*)\} from "hel\/runtime";/,
+        /import \{([^}]*)\} from "heljs\/runtime";/,
         (_, names: string) => `const {${names.replaceAll(" as ", ": ")}} = __runtime;`,
       );
       return new Function("__runtime", "__fetcher", `${body}\nreturn App;`)(runtime, fetcher);
@@ -767,7 +767,7 @@ describe("hydration keeps content in place", () => {
 
   it("claims the page of a route", async () => {
     const source = `
-      import { createRouter } from "hel/runtime";
+      import { createRouter } from "heljs/runtime";
       function Page() {
         let clicks = 0;
         return <section><a href={"/pets/" + clicks}>link</a><button onClick={() => { clicks += 1; }}>{clicks}</button></section>;
@@ -797,7 +797,7 @@ describe("hydration keeps content in place", () => {
 
   it("keeps a provider's content when a sibling follows", async () => {
     const root = hydrateFromServer(`
-      import { createContext, useContext } from "hel/runtime";
+      import { createContext, useContext } from "heljs/runtime";
       const Theme = createContext("default");
       function Inner() { return <b>{useContext(Theme)}</b>; }
       function App() {
@@ -816,7 +816,7 @@ describe("hydration keeps content in place", () => {
 
   it("claims a slot directly inside a provider", async () => {
     const source = `
-      import { createContext } from "hel/runtime";
+      import { createContext } from "heljs/runtime";
       const Theme = createContext("default");
       function App() {
         let clicks = 0;

@@ -37,7 +37,7 @@ jobs:
       - name: Upload Package Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hel-package
+          name: heljs-package
           path: artifacts/*.tgz
 
   publish-npm:
@@ -58,7 +58,7 @@ jobs:
       - name: Download Package Artifact
         uses: actions/download-artifact@v4
         with:
-          name: hel-package
+          name: heljs-package
           path: artifacts
 
       - name: Publish to npm

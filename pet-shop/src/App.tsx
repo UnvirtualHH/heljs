@@ -1,4 +1,4 @@
-import { onMount } from "hel/runtime";
+import { onMount } from "heljs/runtime";
 import { Header } from "./components/Header";
 import { Toasts } from "./components/Toasts";
 import { Preloaded } from "./lib/api";

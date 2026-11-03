@@ -1,4 +1,4 @@
-import { For } from "hel/runtime";
+import { For } from "heljs/runtime";
 import { ErrorNotice, Spinner } from "../components/ui";
 import { postJson, useApi } from "../lib/api";
 import { money, ORDERS_URL, orderUrl } from "../lib/urls";

@@ -1,4 +1,4 @@
-import { store } from "hel/runtime";
+import { store } from "heljs/runtime";
 
 const STORAGE_KEY = "hel-pet-shop.favorites";
 

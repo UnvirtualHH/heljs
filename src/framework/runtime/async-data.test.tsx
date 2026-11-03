@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createContext, createRouter, effect, ErrorBoundary, For, h, list, mount, onCleanup, onMount, useContext, useResource } from "hel/runtime";
+import { createContext, createRouter, effect, ErrorBoundary, For, h, list, mount, onCleanup, onMount, useContext, useResource } from "heljs/runtime";
 
 const wait = (ms = 0) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 

@@ -92,7 +92,7 @@ describe("async functions", () => {
 describe("a row's key", () => {
   it("needs no slot when the row reads the same property", () => {
     const output = transform(`
-      import { For } from "hel/runtime";
+      import { For } from "heljs/runtime";
       function List(props) {
         return <ul><For each={props.rows} key={(row) => row.id}>{(row) => <li onClick={() => pick(row.id)}>{row.id}: {row.label}</li>}</For></ul>;
       }
@@ -106,7 +106,7 @@ describe("a row's key", () => {
 
   it("is not used for anything else, or without a simple key", () => {
     const other = transform(`
-      import { For } from "hel/runtime";
+      import { For } from "heljs/runtime";
       function List(props) {
         return <ul><For each={props.rows} key={(row) => row.id + 1}>{(row) => <li>{row.id}</li>}</For></ul>;
       }
@@ -288,7 +288,7 @@ describe("compiler plugin", () => {
 
   it("passes imported list() calls straight to the keyed list slot", () => {
     const output = transform(`
-      import { list as keyed } from "hel/runtime";
+      import { list as keyed } from "heljs/runtime";
       export function Rows() {
         let items = [];
         return <ul>{keyed(() => items, (item) => item.id, (item) => <li>{item.id}</li>)}</ul>;
@@ -476,7 +476,7 @@ describe("compiler plugin", () => {
 
   it("treats store reads in jsx as reactive dependencies", () => {
     const output = transform(`
-      import { store } from "hel/runtime";
+      import { store } from "heljs/runtime";
       export function Counter() {
         const state = store({ count: 0 });
         return <p>{state.count}</p>;
@@ -488,7 +488,7 @@ describe("compiler plugin", () => {
 
   it("tracks helper functions that read from store bindings", () => {
     const output = transform(`
-      import { store } from "hel/runtime";
+      import { store } from "heljs/runtime";
       export function Counter() {
         const state = store({ count: 0 });
         function label() {
@@ -514,7 +514,7 @@ describe("compiler plugin", () => {
 
   it("treats const initializers by the same rule as JSX expressions", () => {
     const output = transform(`
-      import { store, untrack } from "hel/runtime";
+      import { store, untrack } from "heljs/runtime";
       import { cart } from "./cart";
       export function Panel(props) {
         let count = 0;

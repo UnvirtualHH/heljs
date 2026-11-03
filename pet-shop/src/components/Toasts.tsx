@@ -1,4 +1,4 @@
-import { For } from "hel/runtime";
+import { For } from "heljs/runtime";
 import { toasts, type Toast } from "../state/toasts";
 
 export function Toasts() {
