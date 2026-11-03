@@ -45,6 +45,8 @@ type UsedHelpers = {
   branch: boolean;
   tpl: boolean;
   row: boolean;
+  tree: boolean;
+  trees: Map<string, t.Identifier>;
   dynText: boolean;
   dynAttr: boolean;
   dynBlock: boolean;
@@ -100,6 +102,7 @@ const FACTORY_NAME = /^create[A-Z]/;
 const HOOK_DECLARATION = /\bfunction\s+use[A-Z]|\buse[A-Z]\w*\s*=/;
 const SETUP_CALLS = new Set(["store", "untrack", "memo", "list", "ref", "effect", "cell", "component"]);
 const EVENT_PROP = /^on[A-Z]/;
+const RAW_TEXT_TAGS = new Set(["textarea", "title", "script", "style"]);
 const STATIC_ATTRIBUTE_NAMES: Record<string, string> = { className: "class", htmlFor: "for" };
 const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
 const BINARY_ASSIGNMENTS = new Set([
@@ -167,7 +170,7 @@ function rowParameterBindings(parameter: NodePath, functionPath: RowFunction): A
 function replaceRowReferences(
   functionPath: RowFunction,
   bindings: Array<{ name: string; property: string | null }>,
-  read: (property: string | null) => t.Expression,
+  read: (reference: NodePath, property: string | null) => void,
 ): void {
   for (const { name, property } of bindings) {
     for (const reference of functionPath.scope.getBinding(name)!.referencePaths) {
@@ -175,15 +178,45 @@ function replaceRowReferences(
       if (parent?.isObjectProperty({ shorthand: true })) {
         parent.node.shorthand = false;
       }
-      reference.replaceWith(read(property));
+      read(reference, property);
     }
   }
+}
+
+// The property a key function reads, when that is all it does: row => row.id.
+function keyPropertyOf(key: t.Node | null | undefined): string | null {
+  if (!t.isArrowFunctionExpression(key) || key.params.length === 0) {
+    return null;
+  }
+
+  const [parameter] = key.params;
+  const { body } = key;
+
+  if (
+    t.isIdentifier(parameter) &&
+    t.isMemberExpression(body) &&
+    !body.computed &&
+    t.isIdentifier(body.object, { name: parameter.name }) &&
+    t.isIdentifier(body.property)
+  ) {
+    return body.property.name;
+  }
+
+  if (t.isObjectPattern(parameter) && t.isIdentifier(body)) {
+    for (const property of parameter.properties) {
+      if (t.isObjectProperty(property) && !property.computed && t.isIdentifier(property.key) && t.isIdentifier(property.value, { name: body.name })) {
+        return property.key.name;
+      }
+    }
+  }
+
+  return null;
 }
 
 // A keyed row stays alive when a refetch brings a new object for its key, so what
 // was typed into it survives. Its parameters read the current value, like props.
 // Anything this cannot rewrite safely stays plain and renders the row again.
-function makeRowLive(functionPath: RowFunction, used: UsedHelpers): t.CallExpression | null {
+function makeRowLive(functionPath: RowFunction, used: UsedHelpers, keyProperty: string | null): t.CallExpression | null {
   const [itemParameter, indexParameter, ...rest] = functionPath.get("params") as NodePath[];
   if (!itemParameter || rest.length > 0) {
     return null;
@@ -205,14 +238,40 @@ function makeRowLive(functionPath: RowFunction, used: UsedHelpers): t.CallExpres
 
   const readItem = functionPath.scope.generateUidIdentifier("item");
   const readIndex = functionPath.scope.generateUidIdentifier("index");
+  const rowKey = functionPath.scope.generateUidIdentifier("key");
+  let usesKey = false;
 
-  replaceRowReferences(functionPath, itemBindings, (property) => {
+  replaceRowReferences(functionPath, itemBindings, (reference, property) => {
+    // A row keeps its key for life, so reading it needs no slot at all.
+    if (keyProperty !== null && property === keyProperty) {
+      usesKey = true;
+      reference.replaceWith(t.cloneNode(rowKey));
+      return;
+    }
+
+    const parent = reference.parentPath;
+    if (
+      keyProperty !== null &&
+      property === null &&
+      parent?.isMemberExpression({ computed: false }) &&
+      parent.node.object === reference.node &&
+      t.isIdentifier(parent.node.property, { name: keyProperty }) &&
+      !parent.parentPath.isAssignmentExpression({ left: parent.node }) &&
+      !parent.parentPath.isUpdateExpression()
+    ) {
+      usesKey = true;
+      parent.replaceWith(t.cloneNode(rowKey));
+      return;
+    }
+
     const value = t.callExpression(t.cloneNode(readItem), []);
-    return property ? t.memberExpression(value, t.identifier(property)) : value;
+    reference.replaceWith(property ? t.memberExpression(value, t.identifier(property)) : value);
   });
-  replaceRowReferences(functionPath, indexBindings, () => t.callExpression(t.cloneNode(readIndex), []));
+  replaceRowReferences(functionPath, indexBindings, (reference) => {
+    reference.replaceWith(t.callExpression(t.cloneNode(readIndex), []));
+  });
 
-  functionPath.node.params = indexParameter ? [readItem, readIndex] : [readItem];
+  functionPath.node.params = usesKey ? [readItem, readIndex, rowKey] : indexParameter ? [readItem, readIndex] : [readItem];
   used.row = true;
   return t.callExpression(t.identifier("__row"), [functionPath.node]);
 }
@@ -231,6 +290,8 @@ function createUsedHelpers(): UsedHelpers {
     branch: false,
     tpl: false,
     row: false,
+    tree: false,
+    trees: new Map<string, t.Identifier>(),
     dynText: false,
     dynAttr: false,
     dynBlock: false,
@@ -331,7 +392,7 @@ function isDynamicExpression(root: t.Node): boolean {
 
     if (
       t.isCallExpression(current) &&
-      (t.isIdentifier(current.callee, { name: "__h" }) || t.isIdentifier(current.callee, { name: "__frag" }))
+      (t.isIdentifier(current.callee, { name: "__h" }) || t.isIdentifier(current.callee, { name: "__frag" }) || t.isIdentifier(current.callee, { name: "__tree" }))
     ) {
       continue;
     }
@@ -741,7 +802,7 @@ function expressionProducesBlock(node: t.Expression, analysis?: ComponentAnalysi
     if (t.isCallExpression(current)) {
       const callee = current.callee;
 
-      if (t.isIdentifier(callee, { name: "__h" }) || t.isIdentifier(callee, { name: "__frag" })) {
+      if (t.isIdentifier(callee, { name: "__h" }) || t.isIdentifier(callee, { name: "__frag" }) || t.isIdentifier(callee, { name: "__tree" })) {
         return true;
       }
 
@@ -1078,7 +1139,130 @@ function buildJsxProps(
   return t.objectExpression(properties);
 }
 
+type PlainTreeNode = string | number | PlainTreeElement;
+type PlainTreeElement = [string, Record<string, string | number | true> | null, ...PlainTreeNode[]];
+
+function hostTagOf(element: t.JSXElement): string | null {
+  const { name } = element.openingElement;
+  return t.isJSXIdentifier(name) && !isComponentName(name.name) ? name.name : null;
+}
+
+// Whether a host element can be part of a cloned tree. Nothing here may have side
+// effects, so that the element can still be built the other way if the answer is no.
+function canBeInTree(element: t.JSXElement): boolean {
+  const tag = hostTagOf(element);
+
+  if (!tag || RAW_TEXT_TAGS.has(tag) || tag === "foreignObject") {
+    return false;
+  }
+
+  return element.openingElement.attributes.every((attribute) => t.isJSXAttribute(attribute) && t.isJSXIdentifier(attribute.name));
+}
+
+function isTreeRoot(element: t.JSXElement): boolean {
+  const tag = hostTagOf(element);
+
+  // A template parses as HTML, so an SVG child on its own would lose its namespace.
+  if (!tag || (SVG_TAGS.has(tag) && tag !== "svg")) {
+    return false;
+  }
+
+  const fits = (current: t.JSXElement): boolean =>
+    canBeInTree(current) && current.children.every((child) => !t.isJSXElement(child) || !hostTagOf(child) || fits(child));
+
+  // With one element there is nothing to gain from cloning.
+  return fits(element) && element.children.some((child) => t.isJSXElement(child) && hostTagOf(child) !== null);
+}
+
+function staticAttributeInTree(attribute: t.JSXAttribute): string | true | null {
+  if (attribute.value === null) {
+    return true;
+  }
+
+  if (t.isStringLiteral(attribute.value)) {
+    return attribute.value.value;
+  }
+
+  if (t.isJSXExpressionContainer(attribute.value)) {
+    const { expression } = attribute.value;
+    if (t.isStringLiteral(expression)) return expression.value;
+    if (t.isNumericLiteral(expression)) return String(expression.value);
+    if (t.isBooleanLiteral(expression, { value: true })) return true;
+  }
+
+  return null;
+}
+
+function describeTreeElement(element: t.JSXElement, holes: t.Expression[], used: UsedHelpers, analysis?: ComponentAnalysis): PlainTreeElement {
+  const tag = hostTagOf(element)!;
+  let attrs: Record<string, string | number | true> | null = null;
+
+  for (const attribute of element.openingElement.attributes as t.JSXAttribute[]) {
+    const name = (attribute.name as t.JSXIdentifier).name;
+    const value = EVENT_PROP.test(name) || name === "ref" || (name === "value" && tag === "select") ? null : staticAttributeInTree(attribute);
+
+    attrs ??= {};
+
+    if (value !== null) {
+      attrs[name] = value;
+      continue;
+    }
+
+    const built = buildJsxProps([attribute], used, analysis, false) as t.ObjectExpression;
+    holes.push((built.properties[0] as t.ObjectProperty).value as t.Expression);
+    attrs[name] = holes.length - 1;
+  }
+
+  const children: PlainTreeNode[] = [];
+  const addText = (text: string): void => {
+    const last = children[children.length - 1];
+    if (typeof last === "string") {
+      children[children.length - 1] = last + text;
+    } else if (text) {
+      children.push(text);
+    }
+  };
+
+  for (const child of element.children) {
+    if (t.isJSXText(child)) {
+      addText(normalizeJsxText(child.value));
+    } else if (t.isJSXElement(child) && hostTagOf(child)) {
+      children.push(describeTreeElement(child, holes, used, analysis));
+    } else if (t.isJSXExpressionContainer(child) && t.isStringLiteral(child.expression)) {
+      addText(child.expression.value);
+    } else if (t.isJSXExpressionContainer(child) && t.isNumericLiteral(child.expression)) {
+      addText(String(child.expression.value));
+    } else {
+      for (const expression of buildJsxChildren([child], used, analysis)) {
+        holes.push(expression);
+        children.push(holes.length - 1);
+      }
+    }
+  }
+
+  return [tag, attrs, ...children];
+}
+
+function buildTree(element: t.JSXElement, used: UsedHelpers, analysis?: ComponentAnalysis): t.Expression {
+  const holes: t.Expression[] = [];
+  const desc = describeTreeElement(element, holes, used, analysis);
+  const key = JSON.stringify(desc);
+  let id = used.trees.get(key);
+
+  if (!id) {
+    id = t.identifier(`__tree_${used.trees.size}`);
+    used.trees.set(key, id);
+  }
+
+  used.tree = true;
+  return t.callExpression(t.identifier("__tree"), [t.cloneNode(id), t.arrayExpression(holes)]);
+}
+
 function buildJsxElement(element: t.JSXElement, used: UsedHelpers, analysis?: ComponentAnalysis): t.Expression {
+  if (isTreeRoot(element)) {
+    return buildTree(element, used, analysis);
+  }
+
   used.h = true;
 
   const name = jsxNameToExpression(element.openingElement.name);
@@ -1944,6 +2128,7 @@ function injectRuntimeImport(ast: t.File, used: UsedHelpers): void {
     { imported: "branch", local: "__branch", enabled: used.branch },
     { imported: "tpl", local: "__tpl", enabled: used.tpl },
     { imported: "row", local: "__row", enabled: used.row },
+    { imported: "tree", local: "__tree", enabled: used.tree },
     { imported: "dynText", local: "__dynText", enabled: used.dynText },
     { imported: "dynAttr", local: "__dynAttr", enabled: used.dynAttr },
     { imported: "dynBlock", local: "__dynBlock", enabled: used.dynBlock },
@@ -2051,7 +2236,7 @@ export function helMagicPlugin(): Plugin {
 
             const render = (path.get("arguments") as NodePath[])[2];
             if (render?.isArrowFunctionExpression() || render?.isFunctionExpression()) {
-              const live = makeRowLive(render as RowFunction, used);
+              const live = makeRowLive(render as RowFunction, used, keyPropertyOf(path.node.arguments[1]));
               if (live) {
                 path.node.arguments[2] = live;
                 changed = true;
@@ -2072,7 +2257,11 @@ export function helMagicPlugin(): Plugin {
 
           const render = path.get("expression");
           if (render.isArrowFunctionExpression() || render.isFunctionExpression()) {
-            const live = makeRowLive(render as RowFunction, used);
+            const keyAttribute = owner.node.openingElement.attributes.find(
+              (attribute) => t.isJSXAttribute(attribute) && t.isJSXIdentifier(attribute.name, { name: "key" }),
+            ) as t.JSXAttribute | undefined;
+            const keyValue = t.isJSXExpressionContainer(keyAttribute?.value) ? keyAttribute.value.expression : null;
+            const live = makeRowLive(render as RowFunction, used, keyPropertyOf(keyValue));
             if (live) {
               keyedListCalls.add(live);
               path.node.expression = live;
@@ -2222,6 +2411,23 @@ export function helMagicPlugin(): Plugin {
       }
 
       injectRuntimeImport(ast, used);
+
+      // The descriptions stay the same for every instance, so they live in the module.
+      if (used.trees.size > 0) {
+        const declarations = [...used.trees].map(([key, id]) =>
+          t.variableDeclaration("const", [
+            t.variableDeclarator(
+              t.cloneNode(id),
+              t.objectExpression([
+                t.objectProperty(t.identifier("desc"), t.valueToNode(JSON.parse(key))),
+                t.objectProperty(t.identifier("plan"), t.nullLiteral()),
+              ]),
+            ),
+          ]),
+        );
+        const imports = ast.program.body.filter((statement) => t.isImportDeclaration(statement)).length;
+        ast.program.body.splice(imports, 0, ...declarations);
+      }
 
       const output = generate(
         ast,

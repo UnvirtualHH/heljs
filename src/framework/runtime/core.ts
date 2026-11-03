@@ -32,17 +32,26 @@ import {
   renderRowOnce,
 } from "../shared";
 
-const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+const IS_DEV = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true;
 const ERROR_HANDLER = Symbol("hel.error-handler");
 
-type EffectRunner = (() => void) & {
-  deps: Set<Set<EffectRunner>>;
+export type EffectNode = {
+  fn: () => void;
+  // Almost always one, so an array only appears for the second.
+  deps: Source | Source[] | null;
   disposed: boolean;
-  invalidate?: () => void;
+  started: boolean;
+  frame: ContextFrame | null;
+  invalidate: (() => void) | null;
+};
+
+// Almost every source has one subscriber, so a Set only appears for the second.
+type Source = {
+  subscribers: EffectNode | Set<EffectNode> | null;
 };
 
 const MAX_FLUSH_CYCLES = 100;
-const EMPTY_CLEANUPS: Array<() => void> = [];
+const EMPTY_CLEANUPS: Array<(() => void) | EffectNode> = [];
 const EMPTY_MOUNTS: Array<() => void> = [];
 
 type ContextFrame = {
@@ -51,27 +60,25 @@ type ContextFrame = {
 };
 
 export type Scope = {
-  parent: Scope | null;
   frame: ContextFrame | null;
-  cleanups: Array<() => void>;
+  cleanups: Array<(() => void) | EffectNode>;
   mounts: Array<() => void>;
   active: boolean;
   mounted: boolean;
 };
 
-export interface Cell<T> {
+export interface Cell<T> extends Source {
   value: T;
-  subscribers: Set<EffectRunner>;
 }
 
 type StoreState = {
-  propertySubscribers: WeakMap<object, Map<string | symbol, Set<EffectRunner>>>;
+  propertySubscribers: WeakMap<object, Map<string | symbol, Source>>;
   proxies: WeakMap<object, object>;
 };
 
-const queue = new Set<EffectRunner>();
+const queue = new Set<EffectNode>();
 let scheduled = false;
-let activeEffect: EffectRunner | null = null;
+let activeEffect: EffectNode | null = null;
 let activeScope: Scope | null = null;
 let activeContextFrame: ContextFrame | null = null;
 
@@ -115,7 +122,7 @@ export function resetRuntimeStats(): void {
   runtimeStats.inPlacePatches = 0;
 }
 
-let flushBuffer: EffectRunner[] = [];
+let flushBuffer: EffectNode[] = [];
 const mountQueue = new Set<Scope>();
 let mountsScheduled = false;
 
@@ -176,7 +183,7 @@ function flushQueue(): void {
 
     for (let i = 0; i < flushBuffer.length; i += 1) {
       try {
-        flushBuffer[i]!();
+        runEffect(flushBuffer[i]!);
       } catch (error) {
         reportEffectError(error);
       }
@@ -212,7 +219,7 @@ function handleError(error: unknown, start: ContextFrame | null): void {
   reportEffectError(error);
 }
 
-function schedule(runner: EffectRunner): void {
+function schedule(runner: EffectNode): void {
   if (runner.invalidate) {
     runner.invalidate();
     return;
@@ -229,14 +236,32 @@ function schedule(runner: EffectRunner): void {
   }
 }
 
-function cleanup(runner: EffectRunner): void {
+function cleanup(runner: EffectNode): void {
   if (IS_DEV) runtimeStats.cleanupPasses += 1;
 
-  for (const dependency of runner.deps) {
-    dependency.delete(runner);
+  const { deps } = runner;
+
+  if (deps === null) {
+    return;
   }
 
-  runner.deps.clear();
+  if (Array.isArray(deps)) {
+    for (let i = 0; i < deps.length; i += 1) {
+      unsubscribe(deps[i]!, runner);
+    }
+  } else {
+    unsubscribe(deps, runner);
+  }
+
+  runner.deps = null;
+}
+
+function unsubscribe(source: Source, runner: EffectNode): void {
+  if (source.subscribers === runner) {
+    source.subscribers = null;
+  } else {
+    (source.subscribers as Set<EffectNode> | null)?.delete(runner);
+  }
 }
 
 export function untrack<T>(fn: () => T): T {
@@ -332,7 +357,6 @@ export function useContext<T>(context: ContextDefinition<T>): T {
 
 export function createScope(): Scope {
   return {
-    parent: activeScope,
     frame: activeContextFrame,
     cleanups: EMPTY_CLEANUPS,
     mounts: EMPTY_MOUNTS,
@@ -406,8 +430,15 @@ export function disposeScope(scope: Scope | null): void {
 
   // One failing cleanup must not keep the others from releasing what they hold.
   for (let i = cleanups.length - 1; i >= 0; i -= 1) {
+    const cleanup = cleanups[i]!;
+
+    if (typeof cleanup !== "function") {
+      disposeEffect(cleanup);
+      continue;
+    }
+
     try {
-      cleanups[i]!();
+      cleanup();
     } catch (error) {
       reportEffectError(error);
     }
@@ -420,6 +451,11 @@ export function flushScopeMounts(scope: Scope | null): void {
   }
 
   scope.mounted = true;
+
+  if (scope.mounts === EMPTY_MOUNTS) {
+    return;
+  }
+
   mountQueue.add(scope);
 
   if (!mountsScheduled) {
@@ -431,26 +467,59 @@ export function flushScopeMounts(scope: Scope | null): void {
 export function cell<T>(value: T): Cell<T> {
   return {
     value,
-    subscribers: new Set<EffectRunner>(),
+    subscribers: null,
   };
 }
 
-function trackSubscribers(subscribers: Set<EffectRunner>): void {
-  if (!activeEffect) {
+function track(source: Source): void {
+  const effect = activeEffect;
+  if (!effect) {
     return;
   }
 
-  const tracked = !subscribers.has(activeEffect);
-  subscribers.add(activeEffect);
-  activeEffect.deps.add(subscribers);
-  if (tracked) {
-    if (IS_DEV) runtimeStats.subscriptionsTracked += 1;
+  const current = source.subscribers;
+
+  if (current === effect) {
+    return;
   }
+
+  if (current === null) {
+    source.subscribers = effect;
+  } else if (current instanceof Set) {
+    if (current.has(effect)) {
+      return;
+    }
+    current.add(effect);
+  } else {
+    source.subscribers = new Set([current, effect]);
+  }
+
+  const { deps } = effect;
+
+  if (deps === null) {
+    effect.deps = source;
+  } else if (Array.isArray(deps)) {
+    deps.push(source);
+  } else {
+    effect.deps = [deps, source];
+  }
+
+  if (IS_DEV) runtimeStats.subscriptionsTracked += 1;
 }
 
-function notifySubscribers(subscribers: Set<EffectRunner>): void {
-  for (const subscriber of subscribers) {
-    schedule(subscriber);
+function notify(source: Source): void {
+  const { subscribers } = source;
+
+  if (subscribers === null) {
+    return;
+  }
+
+  if (subscribers instanceof Set) {
+    for (const subscriber of subscribers) {
+      schedule(subscriber);
+    }
+  } else {
+    schedule(subscribers);
   }
 }
 
@@ -464,19 +533,19 @@ function getPropertySubscribers(
   state: StoreState,
   target: object,
   key: string | symbol,
-): Set<EffectRunner> {
+): Source {
   let targetSubscribers = state.propertySubscribers.get(target);
   if (!targetSubscribers) {
-    targetSubscribers = new Map<string | symbol, Set<EffectRunner>>();
+    targetSubscribers = new Map<string | symbol, Source>();
     state.propertySubscribers.set(target, targetSubscribers);
   }
 
-  let subs = targetSubscribers.get(key);
-  if (!subs) {
-    subs = new Set<EffectRunner>();
-    targetSubscribers.set(key, subs);
+  let source = targetSubscribers.get(key);
+  if (!source) {
+    source = { subscribers: null };
+    targetSubscribers.set(key, source);
   }
-  return subs;
+  return source;
 }
 
 function createStoreProxy<T extends object>(target: T, state: StoreState): T {
@@ -487,18 +556,18 @@ function createStoreProxy<T extends object>(target: T, state: StoreState): T {
 
   const proxy = new Proxy(target, {
     get(currentTarget, key, receiver) {
-      trackSubscribers(getPropertySubscribers(state, currentTarget, key));
+      track(getPropertySubscribers(state, currentTarget, key));
       const value = Reflect.get(currentTarget, key, receiver);
       return isStoreObject(value) ? createStoreProxy(value, state) : value;
     },
 
     has(currentTarget, key) {
-      trackSubscribers(getPropertySubscribers(state, currentTarget, key));
+      track(getPropertySubscribers(state, currentTarget, key));
       return Reflect.has(currentTarget, key);
     },
 
     ownKeys(currentTarget) {
-      trackSubscribers(getPropertySubscribers(state, currentTarget, STORE_KEYS));
+      track(getPropertySubscribers(state, currentTarget, STORE_KEYS));
       return Reflect.ownKeys(currentTarget);
     },
 
@@ -510,11 +579,11 @@ function createStoreProxy<T extends object>(target: T, state: StoreState): T {
 
       if (next && !Object.is(previous, value)) {
         if (IS_DEV) runtimeStats.cellWrites += 1;
-        notifySubscribers(getPropertySubscribers(state, currentTarget, key));
+        notify(getPropertySubscribers(state, currentTarget, key));
       }
 
       if (next && !existed) {
-        notifySubscribers(getPropertySubscribers(state, currentTarget, STORE_KEYS));
+        notify(getPropertySubscribers(state, currentTarget, STORE_KEYS));
       }
 
       if (
@@ -523,8 +592,8 @@ function createStoreProxy<T extends object>(target: T, state: StoreState): T {
         key !== "length" &&
         currentTarget.length !== previousLength
       ) {
-        notifySubscribers(getPropertySubscribers(state, currentTarget, "length"));
-        notifySubscribers(getPropertySubscribers(state, currentTarget, STORE_KEYS));
+        notify(getPropertySubscribers(state, currentTarget, "length"));
+        notify(getPropertySubscribers(state, currentTarget, STORE_KEYS));
       }
 
       return next;
@@ -536,12 +605,12 @@ function createStoreProxy<T extends object>(target: T, state: StoreState): T {
 
       if (next && existed) {
         if (IS_DEV) runtimeStats.cellWrites += 1;
-        notifySubscribers(getPropertySubscribers(state, currentTarget, key));
-        notifySubscribers(getPropertySubscribers(state, currentTarget, STORE_KEYS));
+        notify(getPropertySubscribers(state, currentTarget, key));
+        notify(getPropertySubscribers(state, currentTarget, STORE_KEYS));
       }
 
       if (next && Array.isArray(currentTarget)) {
-        notifySubscribers(getPropertySubscribers(state, currentTarget, "length"));
+        notify(getPropertySubscribers(state, currentTarget, "length"));
       }
 
       return next;
@@ -554,7 +623,7 @@ function createStoreProxy<T extends object>(target: T, state: StoreState): T {
 
 export function store<T extends object>(value: T): T {
   const state: StoreState = {
-    propertySubscribers: new WeakMap<object, Map<string | symbol, Set<EffectRunner>>>(),
+    propertySubscribers: new WeakMap<object, Map<string | symbol, Source>>(),
     proxies: new WeakMap<object, object>(),
   };
 
@@ -563,7 +632,7 @@ export function store<T extends object>(value: T): T {
 
 export function get<T>(slot: Cell<T>): T {
   if (IS_DEV) runtimeStats.cellReads += 1;
-  trackSubscribers(slot.subscribers);
+  track(slot);
   return slot.value;
 }
 
@@ -575,89 +644,128 @@ export function set<T>(slot: Cell<T>, next: T): T {
   }
 
   slot.value = next;
-  notifySubscribers(slot.subscribers);
+  notify(slot);
 
   return next;
 }
 
-export function effect(fn: () => void): () => void {
+function runEffect(runner: EffectNode): void {
+  if (runner.disposed) {
+    return;
+  }
+
+  cleanup(runner);
+  if (IS_DEV) runtimeStats.effectRuns += 1;
+
+  const previous = activeEffect;
+  const previousContextFrame = activeContextFrame;
+  activeEffect = runner;
+  activeContextFrame = runner.frame;
+
+  try {
+    runner.fn();
+  } catch (error) {
+    // The first run happens while mounting, so whoever is mounting handles it.
+    if (!runner.started) {
+      throw error;
+    }
+
+    handleError(error, runner.frame);
+  } finally {
+    activeEffect = previous;
+    activeContextFrame = previousContextFrame;
+  }
+}
+
+export function disposeEffect(runner: EffectNode): void {
+  runner.disposed = true;
+  queue.delete(runner);
+  cleanup(runner);
+}
+
+// Re-runs happen in a flush, outside the provider that mounted this effect, which
+// is why it keeps its context frame. With `owned` off, the caller disposes it.
+export function createEffect(fn: () => void, owned = true): EffectNode {
   if (IS_DEV) runtimeStats.effectCreations += 1;
 
-  // Re-runs happen in a flush, outside the provider that mounted this effect.
-  const contextFrame = activeContextFrame;
-  let started = false;
-
-  const runner = (() => {
-    if (runner.disposed) {
-      return;
-    }
-
-    cleanup(runner);
-    if (IS_DEV) runtimeStats.effectRuns += 1;
-
-    const previous = activeEffect;
-    const previousContextFrame = activeContextFrame;
-    activeEffect = runner;
-    activeContextFrame = contextFrame;
-
-    try {
-      fn();
-    } catch (error) {
-      // The first run happens while mounting, so whoever is mounting handles it.
-      if (!started) {
-        throw error;
-      }
-
-      handleError(error, contextFrame);
-    } finally {
-      activeEffect = previous;
-      activeContextFrame = previousContextFrame;
-    }
-  }) as EffectRunner;
-
-  runner.deps = new Set<Set<EffectRunner>>();
-  runner.disposed = false;
-  const dispose = () => {
-    runner.disposed = true;
-    queue.delete(runner);
-    cleanup(runner);
+  const runner: EffectNode = {
+    fn,
+    deps: null,
+    disposed: false,
+    started: false,
+    frame: activeContextFrame,
+    invalidate: null,
   };
 
   try {
-    runner();
+    runEffect(runner);
   } catch (error) {
-    dispose();
+    disposeEffect(runner);
     throw error;
   }
 
-  started = true;
+  runner.started = true;
 
   // Without dependencies it can never run again, so there is nothing to clean
   // up and the surrounding scope still counts as static.
-  if (runner.deps.size > 0) {
-    onScopeCleanup(dispose);
+  if (owned && runner.deps !== null && activeScope?.active) {
+    if (activeScope.cleanups === EMPTY_CLEANUPS) {
+      activeScope.cleanups = [runner];
+    } else {
+      activeScope.cleanups.push(runner);
+    }
   }
 
-  return dispose;
+  return runner;
+}
+
+export function effect(fn: () => void): () => void {
+  const runner = createEffect(fn);
+  return () => disposeEffect(runner);
+}
+
+const PROBE_SCOPE = createScope();
+
+// Runs code that might turn out to create something, and releases whatever it did.
+export function runProbed<T>(read: () => T): T {
+  const previous = activeScope;
+  activeScope = PROBE_SCOPE;
+
+  try {
+    return read();
+  } finally {
+    activeScope = previous;
+
+    if (PROBE_SCOPE.cleanups !== EMPTY_CLEANUPS) {
+      disposeScope(PROBE_SCOPE);
+      PROBE_SCOPE.active = true;
+    }
+
+    PROBE_SCOPE.mounts = EMPTY_MOUNTS;
+  }
 }
 
 // Handlers read derived values right after writing state, so invalidation is
 // synchronous and the recomputation happens on the next read.
 export function memo<T>(fn: () => T, lazy = false): () => T {
-  const subscribers = new Set<EffectRunner>();
+  const source: Source = { subscribers: null };
   const contextFrame = activeContextFrame;
   let dirty = true;
   let value: T;
   let scope: Scope | null = null;
 
-  const node = (() => undefined) as EffectRunner;
-  node.deps = new Set<Set<EffectRunner>>();
-  node.disposed = false;
-  node.invalidate = () => {
-    if (!dirty) {
-      dirty = true;
-      notifySubscribers(subscribers);
-    }
+  const node: EffectNode = {
+    fn: () => undefined,
+    deps: null,
+    disposed: false,
+    started: true,
+    frame: contextFrame,
+    invalidate: () => {
+      if (!dirty) {
+        dirty = true;
+        notify(source);
+      }
+    },
   };
 
   const recompute = (): void => {
@@ -682,7 +790,7 @@ export function memo<T>(fn: () => T, lazy = false): () => T {
       activeContextFrame = previousContextFrame;
     }
 
-    if (IS_DEV && isThenable(value) && node.deps.size > 0) {
+    if (IS_DEV && isThenable(value) && node.deps !== null) {
       console.warn("[hel] A const holds a Promise and starts it again on every change, with no protection against races. Use useResource() instead.");
     }
   };
@@ -702,7 +810,7 @@ export function memo<T>(fn: () => T, lazy = false): () => T {
       return dirty ? untrack(fn) : value;
     }
 
-    trackSubscribers(subscribers);
+    track(source);
 
     if (dirty) {
       recompute();
@@ -714,28 +822,28 @@ export function memo<T>(fn: () => T, lazy = false): () => T {
 
 export function node<T>(read: () => T): NodeFactory<T> {
   return {
-    [NODE_FACTORY]: true,
+    $t: NODE_FACTORY,
     read,
   };
 }
 
 export function text<T>(cellValue: Cell<T>): TextBinding<T> {
   return {
-    [TEXT_BINDING]: true,
+    $t: TEXT_BINDING,
     cell: cellValue,
   };
 }
 
 export function attr<T>(cellValue: Cell<T>): AttrBinding<T> {
   return {
-    [ATTR_BINDING]: true,
+    $t: ATTR_BINDING,
     cell: cellValue,
   };
 }
 
 export function tpl<T>(html: string, read: () => T): TemplateFactory<T> {
   return {
-    [TEMPLATE_FACTORY]: true,
+    $t: TEMPLATE_FACTORY,
     html,
     read,
   };
@@ -743,14 +851,14 @@ export function tpl<T>(html: string, read: () => T): TemplateFactory<T> {
 
 export function ref<T extends Element>(assign: (value: T) => void): RefBinding<T> {
   return {
-    [REF_BINDING]: true,
+    $t: REF_BINDING,
     assign,
   };
 }
 
 function createDynamic<T>(kind: DynamicKind, read: () => T): Dynamic<T> {
   return {
-    [DYNAMIC]: true,
+    $t: DYNAMIC,
     kind,
     read,
   };
@@ -778,7 +886,7 @@ export function branch<T>(
   alternate: () => T,
 ): BranchBinding<T> {
   return {
-    [BRANCH]: true,
+    $t: BRANCH,
     when,
     consequent,
     alternate,
@@ -791,7 +899,7 @@ export function list<T>(
   render: (item: T, index: number) => unknown,
 ): KeyedList<T> {
   return {
-    [LIST]: true,
+    $t: LIST,
     read,
     key,
     render,

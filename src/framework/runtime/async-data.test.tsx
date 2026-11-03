@@ -827,6 +827,205 @@ describe("keyed rows stay alive when an item changes", () => {
   });
 });
 
+describe("cloned element trees", () => {
+  it("falls back when the HTML parser changes the structure", async () => {
+    const root = createRoot();
+    const controls: { set?: (value: number) => void } = {};
+
+    function App() {
+      let count = 1;
+      controls.set = (value) => {
+        count = value;
+      };
+      return <table><tr><td>{count}</td></tr></table>;
+    }
+
+    mount(() => <App />, root);
+    expect(root.querySelector("table > tr > td")?.textContent).toBe("1");
+
+    controls.set!(2);
+    await flush();
+    expect(root.querySelector("td")?.textContent).toBe("2");
+  });
+
+  it("keeps slots in place between static content", async () => {
+    const root = createRoot();
+    const controls: { on?: () => void } = {};
+
+    function App() {
+      let on = false;
+      let name = "a";
+      controls.on = () => {
+        on = true;
+        name = "b";
+      };
+      return <div><b>first</b>{on ? <i>yes</i> : <u>no</u>}<b>second</b>{name}<em>third</em>{name}{on ? "!" : "?"}</div>;
+    }
+
+    mount(() => <App />, root);
+    expect(root.textContent).toBe("firstnosecondathirda?");
+
+    controls.on!();
+    await flush();
+    expect(root.textContent).toBe("firstyessecondbthirdb!");
+    expect(root.querySelector("i + b")?.textContent).toBe("second");
+  });
+
+  it("applies every kind of attribute and event", async () => {
+    const root = createRoot();
+    const clicks: string[] = [];
+    let referenced: Element | null = null;
+
+    function App() {
+      let label = "x";
+      return (
+        <form class="f">
+          <input disabled value="static" />
+          <select value="b" data-kind={label}><option value="a">A</option><option value="b">B</option></select>
+          <label htmlFor="here" className="l">L</label>
+          <button type="button" ref={(element: Element) => { referenced = element; }} onClick={() => { clicks.push("button"); label = "y"; }}>go</button>
+        </form>
+      );
+    }
+
+    mount(() => <App />, root);
+
+    expect(root.querySelector("input")?.disabled).toBe(true);
+    expect(root.querySelector("input")?.value).toBe("static");
+    expect(root.querySelector("select")?.value).toBe("b");
+    expect(root.querySelector("label")?.getAttribute("for")).toBe("here");
+    expect(root.querySelector("label")?.className).toBe("l");
+    expect(referenced).toBe(root.querySelector("button"));
+
+    root.querySelector("button")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    await flush();
+    expect(clicks).toEqual(["button"]);
+    expect(root.querySelector("select")?.getAttribute("data-kind")).toBe("y");
+  });
+
+  it("escapes static text and attributes", () => {
+    const root = createRoot();
+
+    function App() {
+      return <div title={'a"b<c'}><b>{"x<y&z"}</b> &amp; more</div>;
+    }
+
+    mount(() => <App />, root);
+
+    expect(root.querySelector("div")?.getAttribute("title")).toBe('a"b<c');
+    expect(root.querySelector("b")?.textContent).toBe("x<y&z");
+    expect(root.textContent).toBe("x<y&z & more");
+  });
+
+  it("gives each instance its own nodes and SVG its namespace", () => {
+    const root = createRoot();
+
+    function Icon(props: { size: number }) {
+      return <svg width={props.size}><circle r="1" /><path d="M0 0" /></svg>;
+    }
+
+    mount(() => <div><Icon size={1} /><Icon size={2} /></div>, root);
+
+    const icons = root.querySelectorAll("svg");
+    expect(icons).toHaveLength(2);
+    expect(icons[0]).not.toBe(icons[1]);
+    expect(icons[1]?.getAttribute("width")).toBe("2");
+    expect(icons[0]?.querySelector("circle")?.namespaceURI).toBe("http://www.w3.org/2000/svg");
+  });
+});
+
+describe("delegated clicks", () => {
+  const click = (element: Element | null) => element!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+
+  it("bubbles from inner to outer and reports the right currentTarget", () => {
+    const root = createRoot();
+    const seen: string[] = [];
+
+    mount(
+      () => (
+        <div class="outer" onClick={(event: Event) => seen.push((event.currentTarget as Element).className)}>
+          <span class="inner" onClick={(event: Event) => seen.push((event.currentTarget as Element).className)}>
+            <b>x</b>
+          </span>
+        </div>
+      ),
+      root,
+    );
+    click(root.querySelector("b"));
+
+    expect(seen).toEqual(["inner", "outer"]);
+  });
+
+  it("honours stopPropagation", () => {
+    const root = createRoot();
+    const seen: string[] = [];
+
+    mount(
+      () => (
+        <div onClick={() => seen.push("outer")}>
+          <span onClick={(event: Event) => { event.stopPropagation(); seen.push("inner"); }}>x</span>
+        </div>
+      ),
+      root,
+    );
+    click(root.querySelector("span"));
+
+    expect(seen).toEqual(["inner"]);
+  });
+
+  it("skips a disabled button", () => {
+    const root = createRoot();
+    const seen: string[] = [];
+
+    mount(() => <div onClick={() => seen.push("outer")}><button disabled onClick={() => seen.push("button")}>x</button></div>, root);
+    root.querySelector("button")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+    expect(seen).not.toContain("button");
+  });
+
+  it("reports a throwing handler and still runs the outer one", () => {
+    const root = createRoot();
+    const seen: string[] = [];
+
+    mount(
+      () => (
+        <div onClick={() => seen.push("outer")}>
+          <span onClick={() => { throw new Error("handler"); }}>x</span>
+        </div>
+      ),
+      root,
+    );
+    click(root.querySelector("span"));
+
+    expect(messages()).toEqual(["handler"]);
+    expect(seen).toEqual(["outer"]);
+  });
+
+  it("lets a handler stop the router", async () => {
+    const root = createRoot();
+    const router = createRouter([{ path: "/", view: () => <p>home</p> }, { path: "/other", view: () => <p>other</p> }], { initialPath: "/" });
+
+    mount(
+      () => (
+        <main>
+          <a id="stopped" href="/other" onClick={(event: Event) => event.preventDefault()}>a</a>
+          <a id="normal" href="/other">b</a>
+          {router.view()}
+        </main>
+      ),
+      root,
+    );
+
+    click(root.querySelector("#stopped"));
+    await flush();
+    expect(root.querySelector("p")?.textContent).toBe("home");
+
+    click(root.querySelector("#normal"));
+    await flush();
+    expect(root.querySelector("p")?.textContent).toBe("other");
+  });
+});
+
 describe("the router and page state", () => {
   function setup() {
     let setups = 0;

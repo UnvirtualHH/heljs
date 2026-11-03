@@ -2,8 +2,9 @@ import {
   cell,
   createScope,
   disposeScope,
-  effect,
   flushScopeMounts,
+  createEffect,
+  disposeEffect,
   get,
   getActiveScope,
   isAttrBinding,
@@ -19,9 +20,11 @@ import {
   set,
   untrack,
   type Cell,
+  runProbed,
+  type EffectNode,
   type Scope,
 } from "./core";
-import { isComponentResult } from "./component";
+import type { ComponentResult } from "./component";
 import {
   BLOCK_END,
   BLOCK_START,
@@ -51,18 +54,44 @@ import {
   tryPatchNodeInPlace,
   tryPatchNodeListInPlace,
 } from "./patch";
-import { isLiveRow, isThenable, RENDERED_PROMISE_MESSAGE, type Dynamic, type KeyedList } from "../shared";
+import {
+  BRANCH,
+  COMPONENT_RESULT,
+  DYNAMIC,
+  isLiveRow,
+  isThenable,
+  LIST,
+  NODE_FACTORY,
+  RENDERED_PROMISE_MESSAGE,
+  TEMPLATE_FACTORY,
+  TEXT_BINDING,
+  type BranchBinding,
+  type Dynamic,
+  type KeyedList,
+  type NodeFactory,
+  type TemplateFactory,
+  type TextBinding,
+} from "../shared";
 
 type ListEntry<T> = {
   item: Cell<T>;
   index: number;
   indexCell: Cell<number> | null;
+  position: number;
   key: string | number;
   node: Node;
-  scope: Scope;
+  effect: EffectNode | null;
+  content: Scope | null;
 };
 
-const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+function disposeEntry<T>(entry: ListEntry<T>): void {
+  if (entry.effect) {
+    disposeEffect(entry.effect);
+  }
+  disposeScope(entry.content);
+}
+
+const IS_DEV = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true;
 
 // A scope with cleanups owns live effects or child components, so its nodes
 // cannot be swapped for structurally equal ones without losing those bindings.
@@ -81,29 +110,29 @@ function createListEntry<T>(
     item: cell(item),
     index,
     indexCell: null,
+    position: -1,
     key,
     node: null as unknown as Node,
-    scope: createScope(),
+    effect: null,
+    content: null,
   };
-  let contentScope: Scope | null = null;
   const render = binding.render;
   const renderRow = isLiveRow<T>(render)
     ? () =>
         render(
           () => get(entry.item),
           () => get((entry.indexCell ??= cell(entry.index))),
+          entry.key,
         )
     : () => render(get(entry.item), entry.index);
 
-  runWithScope(entry.scope, () => {
-    onScopeCleanup(() => disposeScope(contentScope));
-
-    effect(() => {
-      const wasStatic = isStaticScope(contentScope);
-      disposeScope(contentScope);
+  try {
+    const effect = createEffect(() => {
+      const wasStatic = isStaticScope(entry.content);
+      disposeScope(entry.content);
 
       const nextScope = createScope();
-      contentScope = nextScope;
+      entry.content = nextScope;
       const previous = entry.node;
       let node: Node;
 
@@ -133,8 +162,14 @@ function createListEntry<T>(
         replaceNode(previous.parentNode, node, previous);
       }
       entry.node = node;
-    });
-  });
+    }, false);
+
+    // A row that read nothing while rendering can never render again.
+    entry.effect = effect.deps === null ? null : effect;
+  } catch (error) {
+    disposeScope(entry.content);
+    throw error;
+  }
 
   return entry;
 }
@@ -304,25 +339,22 @@ function mountStaticText(parent: Node, value: string): void {
 
 // The compiler cannot always tell text from renderable content (props.children,
 // helpers from other modules), so a slot holding an object becomes a block slot.
-function mountTextSlot(parent: Node, read: () => unknown): void {
+function mountTextSlot(parent: Node, read: () => unknown, placeholder: Text | null = null): void {
   const owner = getActiveScope();
-  let text: Text | null = null;
-  let previous = "";
+  let text = placeholder;
+  let previous = placeholder ? placeholder.data : "";
   let upgraded = false;
 
-  effect(() => {
+  createEffect(() => {
     if (upgraded) {
       return;
     }
 
-    const probe = createScope();
     let value: unknown;
 
     try {
-      value = runWithScope(probe, read);
+      value = runProbed(read);
     } catch (error) {
-      disposeScope(probe);
-
       // The last value is no longer true, and the slot retries on its next change.
       if (text) {
         text.data = "";
@@ -333,7 +365,6 @@ function mountTextSlot(parent: Node, read: () => unknown): void {
 
     if (typeof value === "object" && value !== null) {
       upgraded = true;
-      disposeScope(probe);
 
       if (!text) {
         mountBlockSlot(parent, read);
@@ -374,6 +405,30 @@ function mountTextSlot(parent: Node, read: () => unknown): void {
 
 function mountTextBinding(parent: Node, cell: Cell<unknown>): void {
   mountTextSlot(parent, () => get(cell));
+}
+
+export function fillTextPlaceholder(parent: Node, text: Text, value: unknown): void {
+  if (typeof value !== "object" || value === null) {
+    text.data = normalizeTextValue(value);
+    return;
+  }
+
+  const tag = (value as { $t?: number }).$t;
+
+  if (tag === DYNAMIC && (value as Dynamic).kind === "text") {
+    mountTextSlot(parent, (value as Dynamic).read, text);
+    return;
+  }
+
+  if (tag === TEXT_BINDING) {
+    const { cell } = value as TextBinding;
+    mountTextSlot(parent, () => get(cell as Cell<unknown>), text);
+    return;
+  }
+
+  const holder = document.createDocumentFragment();
+  appendChild(holder, value);
+  parent.replaceChild(holder, text);
 }
 
 function unwrapAttrValue(value: unknown): unknown {
@@ -429,20 +484,23 @@ function matchesHydratedProperty(element: HTMLElement, key: string, value: unkno
 
 function writeProperty(element: HTMLElement, key: string, value: unknown): void {
   const normalizedKey = key === "className" ? "class" : key;
-  const isDomProperty =
-    normalizedKey in element &&
-    !normalizedKey.startsWith("data-") &&
-    !normalizedKey.startsWith("aria-");
 
   if (normalizedKey === "class") {
     if (value == null || value === false) {
       element.removeAttribute("class");
-      return;
+    } else if (typeof element.className === "string") {
+      element.className = String(value);
+    } else {
+      // On an SVG element, className is a read-only object.
+      element.setAttribute("class", String(value));
     }
-
-    element.setAttribute("class", String(value));
     return;
   }
+
+  const isDomProperty =
+    normalizedKey in element &&
+    !normalizedKey.startsWith("data-") &&
+    !normalizedKey.startsWith("aria-");
 
   if (normalizedKey === "style" && value && typeof value === "object") {
     Object.assign(element.style, value);
@@ -496,7 +554,7 @@ function mountAttrBinding(element: HTMLElement, key: string, cell: Cell<unknown>
   let previous: unknown;
   let hydrated = isHydrating();
 
-  effect(() => {
+  createEffect(() => {
     const next = get(cell);
 
     if (hydrated) {
@@ -564,7 +622,7 @@ function mountBlockSlot(parent: Node, read: () => unknown): void {
 
   onScopeCleanup(() => disposeScope(contentScope));
 
-  effect(() => {
+  createEffect(() => {
     if (hydrated) {
       contentScope = createScope();
       const blockFrame = openHydrationFrame(end.parentNode!, "block", end);
@@ -621,7 +679,7 @@ function mountBranchSlot(
 
   onScopeCleanup(() => disposeScope(activeScope));
 
-  effect(() => {
+  createEffect(() => {
     const nextKind = binding.when() ? "consequent" : "alternate";
 
     if (!hydrated && activeKind === nextKind) {
@@ -673,6 +731,44 @@ function mountBranchSlot(
   });
 }
 
+// The longest run of rows already in order stays where it is, and only the others
+// move. Swapping two rows then moves two nodes, not everything between them.
+function markStableRows(positions: number[]): boolean[] {
+  const previous = new Array<number>(positions.length);
+  const tails: number[] = [];
+
+  for (let index = 0; index < positions.length; index += 1) {
+    const position = positions[index]!;
+    if (position < 0) {
+      continue;
+    }
+
+    let low = 0;
+    let high = tails.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (positions[tails[middle]!]! < position) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+
+    previous[index] = low > 0 ? tails[low - 1]! : -1;
+    tails[low] = index;
+  }
+
+  const stable = new Array<boolean>(positions.length).fill(false);
+  let cursor = tails.length > 0 ? tails[tails.length - 1]! : -1;
+
+  while (cursor >= 0) {
+    stable[cursor] = true;
+    cursor = previous[cursor]!;
+  }
+
+  return stable;
+}
+
 function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
   const { start, end, hydrated: startsHydrated } = mountBlockMarkers(parent);
   let hydrated = startsHydrated;
@@ -681,7 +777,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
 
   onScopeCleanup(() => {
     for (const entry of currentEntries) {
-      disposeScope(entry.scope);
+      disposeEntry(entry);
     }
   });
 
@@ -750,94 +846,143 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
       return;
     }
 
-    if (currentEntries.length === items.length) {
-      let stableOrder = true;
+    if (items.length === 0) {
+      replaceNodesBetween(parent, start, end, [], currentEntries.length);
+      for (const entry of currentEntries) {
+        disposeEntry(entry);
+      }
+      currentEntries = [];
+      return;
+    }
 
-      for (let index = 0; index < items.length; index += 1) {
-        if (currentEntries[index]!.key !== nextKeys[index]!) {
-          stableOrder = false;
-          break;
-        }
+    // Most changes leave both ends alone: appending, removing one row, swapping two.
+    const oldLength = currentEntries.length;
+    const newLength = items.length;
+    let head = 0;
+
+    while (head < oldLength && head < newLength && currentEntries[head]!.key === nextKeys[head]) {
+      updateEntry(currentEntries[head]!, items[head]!, head);
+      head += 1;
+    }
+
+    if (head === oldLength && head === newLength) {
+      return;
+    }
+
+    let oldTail = oldLength - 1;
+    let newTail = newLength - 1;
+
+    while (oldTail >= head && newTail >= head && currentEntries[oldTail]!.key === nextKeys[newTail]) {
+      updateEntry(currentEntries[oldTail]!, items[newTail]!, newTail);
+      oldTail -= 1;
+      newTail -= 1;
+    }
+
+    const nextEntries = new Array<ListEntry<T>>(newLength);
+
+    for (let index = 0; index < head; index += 1) {
+      nextEntries[index] = currentEntries[index]!;
+    }
+
+    for (let index = newTail + 1; index < newLength; index += 1) {
+      nextEntries[index] = currentEntries[index - newLength + oldLength]!;
+    }
+
+    const reference: Node = newTail + 1 < newLength ? nextEntries[newTail + 1]!.node : end;
+
+    if (oldTail < head) {
+      const freshNodes: Node[] = [];
+
+      for (let index = head; index <= newTail; index += 1) {
+        const entry = createEntry(items[index]!, index, nextKeys[index]!);
+        nextEntries[index] = entry;
+        freshNodes.push(entry.node);
       }
 
-      if (stableOrder) {
-        for (let index = 0; index < items.length; index += 1) {
-          updateEntry(currentEntries[index]!, items[index]!, index);
+      insertNodesBefore(parent, freshNodes, reference);
+      currentEntries = nextEntries;
+      return;
+    }
+
+    if (newTail < head) {
+      for (let index = head; index <= oldTail; index += 1) {
+        const entry = currentEntries[index]!;
+        if (entry.node.parentNode === parent) {
+          removeNode(parent, entry.node);
         }
-        return;
+        disposeEntry(entry);
       }
+
+      currentEntries = nextEntries;
+      return;
     }
 
     const previousByKey = new Map<string | number, ListEntry<T>>();
 
-    for (const entry of currentEntries) {
+    for (let position = head; position <= oldTail; position += 1) {
+      const entry = currentEntries[position]!;
       if (previousByKey.has(entry.key) && IS_DEV) {
         console.warn(`[hel] Duplicate key "${String(entry.key)}" in keyed list.`);
       }
+      entry.position = position;
       previousByKey.set(entry.key, entry);
     }
 
-    const nextEntries: Array<ListEntry<T>> = [];
+    const positions = new Array<number>(newTail - head + 1);
 
-    for (let index = 0; index < items.length; index += 1) {
-      const item = items[index]!;
+    for (let index = head; index <= newTail; index += 1) {
       const key = nextKeys[index]!;
       const previous = previousByKey.get(key);
-      previousByKey.delete(key);
 
       if (previous) {
-        updateEntry(previous, item, index);
-        nextEntries.push(previous);
-        continue;
-      }
-
-      nextEntries.push(createEntry(item, index, key));
-    }
-
-    for (const entry of previousByKey.values()) {
-      if (entry.node.parentNode === parent) {
-        removeNode(parent, entry.node);
-      }
-      disposeScope(entry.scope);
-    }
-
-    let anchor: Node = start;
-    let pendingInsertions: Node[] = [];
-    let pendingReference: Node | null = end;
-
-    const flushPendingInsertions = (): void => {
-      if (pendingInsertions.length === 0) {
-        return;
-      }
-
-      insertNodesBefore(parent, pendingInsertions, pendingReference);
-      pendingInsertions = [];
-    };
-
-    for (const entry of nextEntries) {
-      const expectedNextSibling = anchor.nextSibling;
-      if (expectedNextSibling === entry.node) {
-        flushPendingInsertions();
-        anchor = entry.node;
-        continue;
-      }
-
-      if (entry.node.parentNode !== parent) {
-        pendingInsertions.push(entry.node);
-        pendingReference = expectedNextSibling ?? end;
+        previousByKey.delete(key);
+        updateEntry(previous, items[index]!, index);
+        nextEntries[index] = previous;
+        positions[index - head] = previous.position;
       } else {
-        flushPendingInsertions();
-        insertNodeBefore(parent, entry.node, expectedNextSibling ?? end);
+        nextEntries[index] = createEntry(items[index]!, index, key);
+        positions[index - head] = -1;
       }
-
-      anchor = entry.node;
     }
 
-    flushPendingInsertions();
+    // When no row survives, the old ones go at once instead of one by one.
+    if (previousByKey.size === oldLength) {
+      replaceNodesBetween(parent, start, end, [], oldLength);
+      for (const entry of currentEntries) {
+        disposeEntry(entry);
+      }
+    } else {
+      for (const entry of previousByKey.values()) {
+        if (entry.node.parentNode === parent) {
+          removeNode(parent, entry.node);
+        }
+        disposeEntry(entry);
+      }
+    }
+
+    // From the back, so the node after the current one is already in its place.
+    const stable = markStableRows(positions);
+    let anchor = reference;
+    let pending: Node[] = [];
+
+    for (let index = newTail; index >= head; index -= 1) {
+      const node = nextEntries[index]!.node;
+
+      if (!stable[index - head]) {
+        pending.push(node);
+        continue;
+      }
+
+      insertNodesBefore(parent, pending.reverse(), anchor);
+      pending = [];
+      anchor = node;
+    }
+
+    insertNodesBefore(parent, pending.reverse(), anchor);
     currentEntries = nextEntries;
   };
 
-  effect(() => {
+  createEffect(() => {
     created = [];
 
     try {
@@ -845,7 +990,7 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
     } catch (error) {
       // The list stays as it was, so rows created for this update have no owner.
       for (const entry of created) {
-        disposeScope(entry.scope);
+        disposeEntry(entry);
       }
       throw error;
     }
@@ -857,7 +1002,7 @@ function mountAttrSlot(element: HTMLElement, key: string, read: () => unknown): 
   let previous: unknown;
   let hydrated = isHydrating();
 
-  effect(() => {
+  createEffect(() => {
     const next = unwrapAttrValue(read());
 
     if (hydrated) {
@@ -882,54 +1027,50 @@ function mountAttrSlot(element: HTMLElement, key: string, read: () => unknown): 
 }
 
 export function appendChild(parent: Node, value: unknown): void {
-  if (isComponentResult(value)) {
-    appendChild(parent, value.value);
-    flushScopeMounts(value.scope);
-    return;
-  }
-
-  if (isNodeFactory(value)) {
-    appendChild(parent, value.read());
-    return;
-  }
-
-  if (isTextBinding(value)) {
-    mountTextBinding(parent, value.cell as Cell<unknown>);
-    return;
-  }
-
-  if (isTemplateFactory(value)) {
-    if (isHydrating()) {
-      appendChild(parent, value.read());
-      return;
-    }
-
-    appendNode(parent, cloneTemplate(value.html));
-    return;
-  }
-
-  if (isBranchBinding(value)) {
-    mountBranchSlot(parent, value);
-    return;
-  }
-
-  if (isKeyedList(value)) {
-    mountListSlot(parent, value);
-    return;
-  }
-
-  if (isDynamic(value)) {
-    if (value.kind === "text") {
-      mountTextSlot(parent, value.read);
-      return;
-    }
-
-    mountBlockSlot(parent, value.read);
-    return;
-  }
-
   if (value == null || value === false || value === true) {
     return;
+  }
+
+  if (typeof value !== "object") {
+    mountStaticText(parent, String(value));
+    return;
+  }
+
+  switch ((value as { $t?: number }).$t) {
+    case COMPONENT_RESULT: {
+      const result = value as ComponentResult;
+      appendChild(parent, result.value);
+      flushScopeMounts(result.scope);
+      return;
+    }
+    case NODE_FACTORY:
+      appendChild(parent, (value as NodeFactory).read());
+      return;
+    case TEXT_BINDING:
+      mountTextBinding(parent, (value as TextBinding).cell as Cell<unknown>);
+      return;
+    case TEMPLATE_FACTORY:
+      if (isHydrating()) {
+        appendChild(parent, (value as TemplateFactory).read());
+        return;
+      }
+
+      appendNode(parent, cloneTemplate((value as TemplateFactory).html));
+      return;
+    case BRANCH:
+      mountBranchSlot(parent, value as BranchBinding);
+      return;
+    case LIST:
+      mountListSlot(parent, value as KeyedList<unknown>);
+      return;
+    case DYNAMIC:
+      if ((value as Dynamic).kind === "text") {
+        mountTextSlot(parent, (value as Dynamic).read);
+        return;
+      }
+
+      mountBlockSlot(parent, (value as Dynamic).read);
+      return;
   }
 
   if (value instanceof Node) {
@@ -954,10 +1095,10 @@ export function appendChild(parent: Node, value: unknown): void {
 }
 
 function shouldDeferProperty(element: HTMLElement, key: string): boolean {
-  return element instanceof HTMLSelectElement && key === "value";
+  return key === "value" && element instanceof HTMLSelectElement;
 }
 
-function applyProp(element: HTMLElement, key: string, value: unknown): void {
+export function applyProp(element: HTMLElement, key: string, value: unknown): void {
   if (key === "children") {
     return;
   }
@@ -992,12 +1133,14 @@ function applyProp(element: HTMLElement, key: string, value: unknown): void {
   writeProperty(element, key, value);
 }
 
-export function applyProps(element: HTMLElement, props: Record<string, unknown>): Array<() => void> {
-  const deferred: Array<() => void> = [];
+export function applyProps(element: HTMLElement, props: Record<string, unknown>): Array<() => void> | null {
+  let deferred: Array<() => void> | null = null;
 
-  for (const [key, value] of Object.entries(props)) {
+  for (const key in props) {
+    const value = props[key];
+
     if (shouldDeferProperty(element, key)) {
-      deferred.push(() => applyProp(element, key, value));
+      (deferred ??= []).push(() => applyProp(element, key, value));
       continue;
     }
 

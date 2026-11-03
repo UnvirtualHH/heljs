@@ -40,6 +40,16 @@ Notes:
 - falls back locally on mismatches instead of hard-failing globally
 - returns a function that unmounts the root, like `mount`
 
+#### Events
+
+`onClick` is delegated: there is one listener on `document`, and a walk from the target upward reproduces bubbling, including `currentTarget` and `stopPropagation`. A list with a handler per row would otherwise pay for every listener twice. All other events use `addEventListener` on the element.
+
+This has three consequences, the same as in Solid:
+
+- a click on an element that is not in the document does not reach its handler
+- a click event dispatched without `bubbles: true` does not either
+- a listener you add yourself to an ancestor runs before `onClick` handlers below it
+
 #### `h(...)`
 
 Low-level JSX runtime helper used by the compiler. You usually do not call it manually.

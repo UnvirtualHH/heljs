@@ -716,6 +716,8 @@ Important:
 
 ## Current Performance Characteristics
 
+In [js-framework-benchmark](docs/PERFORMANCE.md), run locally and not yet official, Hel is in one group with Solid and Svelte, ahead of Vue and React. Read the caveats there before quoting it.
+
 The current state already does a few important things:
 
 - fine-grained subscription tracking in the runtime

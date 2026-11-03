@@ -4,14 +4,55 @@ This document describes the current performance model and benchmark posture of `
 
 The right expectation is:
 
-- not Solid-level
-- clearly faster than naive rendering on important paths
+- in the same group as Solid and Svelte in js-framework-benchmark, on one machine so far
 - predictable, compiler-driven DOM work
 
 It is not:
 
 - a finished performance story
 - a claim that every path beats every competitor
+
+## js-framework-benchmark
+
+Measured with the [Hel implementation in this repository](../benchmarks/js-framework-benchmark), which uses plain `let` state and no benchmark-specific tricks. Keyed mode, headless Chrome 149 on Windows, one developer machine. Two runs of 15 iterations each with the framework order reversed, pooled.
+
+**This is not an official result.** Hel cannot join the official benchmark until it is published on npm. The score is the weighted geometric mean of the CPU benchmarks, using the official weights, relative to the fastest framework in this selection only. The official table has many more frameworks, so a rank here is not a rank there.
+
+| | vanilla | Solid | **Hel** | Svelte | Vue | React |
+|---|---|---|---|---|---|---|
+| **Score** (lower is better) | 1.00 | 1.10 | **1.13** | 1.15 | 1.29 | 1.51 |
+| Score, first run | 1.03 | 1.11 | 1.12 | 1.14 | 1.31 | 1.49 |
+| Score, second run | 1.00 | 1.09 | 1.09 | 1.15 | 1.26 | 1.53 |
+| Create 1,000 rows | 42.4 ms | 44.9 ms | **46.1 ms** | 46.3 ms | 55.7 ms | 57.6 ms |
+| Replace 1,000 rows | 49.4 ms | 50.4 ms | **51.4 ms** | 57.5 ms | 59.3 ms | 65.3 ms |
+| Update every 10th row | 28.9 ms | 30.9 ms | **39.0 ms** | 31.7 ms | 36.1 ms | 40.6 ms |
+| Select a row | 10.3 ms | 12.7 ms | **12.3 ms** | 17.8 ms | 12.9 ms | 17.6 ms |
+| Swap two rows | 32.0 ms | 35.0 ms | **37.2 ms** | 36.3 ms | 36.4 ms | 249.9 ms |
+| Remove a row | 25.7 ms | 28.8 ms | **25.5 ms** | 25.9 ms | 36.7 ms | 28.6 ms |
+| Create 10,000 rows | 453 ms | 498 ms | **522 ms** | 514 ms | 585 ms | 811 ms |
+| Append 1,000 rows | 50.4 ms | 50.9 ms | **58.2 ms** | 59.2 ms | 59.3 ms | 63.4 ms |
+| Clear rows | 19.5 ms | 27.1 ms | **22.1 ms** | 24.7 ms | 29.9 ms | 37.5 ms |
+| Memory after creating 1,000 rows | 2.0 MB | 2.8 MB | **3.0 MB** | 3.0 MB | 4.0 MB | 4.6 MB |
+| Size, compressed | 2.5 KB | 4.5 KB | **9.1 KB** | 9.7 KB | 23.3 KB | 51.4 KB |
+
+How far to trust this:
+
+- A framework's score moved by up to 0.1 between runs on this machine, more than the distance between Solid, Hel, and Svelte. An earlier state of Hel swapped places with Svelte between two runs. Hel beat Svelte in both final runs, but read this as one group of three, with Vue and React clearly behind.
+- Hel's weakest points are updating every 10th row and the long tail of creating 10,000 rows: its fastest runs match Svelte, but its slowest reached about 1,050 ms against about 870 ms.
+- Other browsers and machines are not measured.
+
+Before this work, Hel scored 1.33 in this selection, behind Vue. Getting here took:
+
+| Change | Why it mattered |
+| --- | --- |
+| Cloning whole element trees | Creating elements one by one was the largest cost. The compiler now describes a tree once per module and fills in the dynamic parts. Hydration and the server still go element by element, from the same description |
+| Reusing text nodes from the template | No extra node to create and append for most slots |
+| Moving only rows that left their order | Swapping two rows moved every row between them, which took 361 ms |
+| Trimming both ends of a list change | Appending or removing rows needs no map and no sorting |
+| One numeric tag per value | Rendering ran up to seven `in` checks per child |
+| Delegating clicks | A listener per row costs twice: when added and when the row is removed |
+| Lighter effects | No `Set` for a single subscriber or dependency, no closures for disposal, and no effect kept for a row that read nothing |
+| Reading the key instead of a slot | `{row.id}` needs no slot when the key is `row.id`, because a row keeps its key for life |
 
 ## Current Strategy
 
@@ -166,9 +207,8 @@ Still open:
 
 - more reduction of unnecessary `dyn*` wrappers
 - closure allocation reduction in compiled output
-- broader benchmark coverage
 - memory and hydration budgets
-- a second non-happy-dom benchmark harness if we want browser-level validation
+- benchmark runs on other machines and browsers
 
 ## How to Benchmark
 
@@ -235,13 +275,9 @@ For stable list reuse:
 </For>
 ```
 
-### Do not expect `const value = count * 2` to become a cached computed
+### A `const` that reads state is cached
 
-If you need a derived read, use a helper:
-
-```tsx
-const doubled = () => count * 2;
-```
+`const doubled = count * 2` is computed once per change, however often it is read.
 
 ### Keep router expectations realistic
 
@@ -258,7 +294,6 @@ Today, `Hel` is strongest when:
 
 It is not yet finished in:
 
-- broad benchmark coverage
 - performance budgeting
 - final performance documentation for `1.0`
 

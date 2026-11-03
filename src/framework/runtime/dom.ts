@@ -1,19 +1,19 @@
 import { runtimeStats } from "./core";
 
-const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+const IS_DEV = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true;
 const templateCache = new Map<string, HTMLTemplateElement>();
 
 export function appendNode(parent: Node, node: Node): void {
   parent.appendChild(node);
-  if (parent.isConnected) {
-    if (IS_DEV) runtimeStats.domInsertions += 1;
+  if (IS_DEV && parent.isConnected) {
+    runtimeStats.domInsertions += 1;
   }
 }
 
 export function insertNodeBefore(parent: Node, node: Node, reference: Node | null): void {
   parent.insertBefore(node, reference);
-  if (parent.isConnected) {
-    if (IS_DEV) runtimeStats.domInsertions += 1;
+  if (IS_DEV && parent.isConnected) {
+    runtimeStats.domInsertions += 1;
   }
 }
 
@@ -33,22 +33,22 @@ export function insertNodesBefore(parent: Node, nodes: Node[], reference: Node |
   }
 
   parent.insertBefore(fragment, reference);
-  if (parent.isConnected) {
-    if (IS_DEV) runtimeStats.domInsertions += nodes.length;
+  if (IS_DEV && parent.isConnected) {
+    runtimeStats.domInsertions += nodes.length;
   }
 }
 
 export function removeNode(parent: Node, node: Node): void {
   parent.removeChild(node);
-  if (parent.isConnected) {
-    if (IS_DEV) runtimeStats.domRemovals += 1;
+  if (IS_DEV && parent.isConnected) {
+    runtimeStats.domRemovals += 1;
   }
 }
 
 export function replaceNode(parent: Node, next: Node, current: Node): void {
   parent.replaceChild(next, current);
-  if (parent.isConnected) {
-    if (IS_DEV) runtimeStats.domReplacements += 1;
+  if (IS_DEV && parent.isConnected) {
+    runtimeStats.domReplacements += 1;
   }
 }
 
@@ -59,10 +59,19 @@ export function replaceNodesBetween(
   nextNodes: Node[],
   currentCount: number,
 ): void {
-  const range = document.createRange();
-  range.setStartAfter(start);
-  range.setEndBefore(end);
-  range.deleteContents();
+  // Emptying the parent is far cheaper than removing node by node or through a Range.
+  if (start.previousSibling === null && end.nextSibling === null) {
+    parent.textContent = "";
+    parent.appendChild(start);
+    parent.appendChild(end);
+  } else {
+    let current = start.nextSibling;
+    while (current !== end) {
+      const next: ChildNode | null = current!.nextSibling;
+      parent.removeChild(current!);
+      current = next;
+    }
+  }
 
   if (nextNodes.length === 1) {
     parent.insertBefore(nextNodes[0]!, end);
@@ -74,7 +83,7 @@ export function replaceNodesBetween(
     parent.insertBefore(fragment, end);
   }
 
-  if (parent.isConnected && IS_DEV) {
+  if (IS_DEV && parent.isConnected) {
     runtimeStats.domRemovals += currentCount;
     runtimeStats.domInsertions += nextNodes.length;
   }

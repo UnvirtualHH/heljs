@@ -494,6 +494,108 @@ describe("a failing keyed list", () => {
   });
 });
 
+describe("moving keyed rows", () => {
+  function setup(initial: number[]) {
+    const root = createRoot();
+    const controls: { items?: (value: number[]) => void } = {};
+
+    function App() {
+      let items = initial;
+      controls.items = (value) => {
+        items = value;
+      };
+      return <ul>{list(() => items, (item) => item, (item) => <li>{item}</li>)}</ul>;
+    }
+
+    mount(() => <App />, root);
+    const texts = () => [...root.querySelectorAll("li")].map((li) => Number(li.textContent));
+    return { root, controls, texts };
+  }
+
+  const countMoves = async (root: Element, change: () => void) => {
+    const list = root.querySelector("ul")!;
+    let moves = 0;
+    const observer = new MutationObserver((records) => {
+      moves += records.reduce((sum, record) => sum + record.addedNodes.length, 0);
+    });
+    observer.observe(list, { childList: true });
+    change();
+    await flush();
+    observer.disconnect();
+    return moves;
+  };
+
+  it("moves only two nodes when two rows swap", async () => {
+    const initial = Array.from({ length: 100 }, (_, index) => index);
+    const { root, controls, texts } = setup(initial);
+    const next = initial.slice();
+    next[1] = initial[98]!;
+    next[98] = initial[1]!;
+
+    const moves = await countMoves(root, () => controls.items!(next));
+
+    expect(texts()).toEqual(next);
+    expect(moves).toBe(2);
+  });
+
+  it("moves nothing when a row is removed", async () => {
+    const initial = Array.from({ length: 50 }, (_, index) => index);
+    const { root, controls, texts } = setup(initial);
+    const next = initial.filter((item) => item !== 20);
+
+    const moves = await countMoves(root, () => controls.items!(next));
+
+    expect(texts()).toEqual(next);
+    expect(moves).toBe(0);
+  });
+
+  it("keeps the same nodes through a reorder", async () => {
+    const { root, controls } = setup([1, 2, 3, 4]);
+    const first = root.querySelector("li");
+
+    controls.items!([4, 3, 2, 1]);
+    await flush();
+
+    expect(root.querySelectorAll("li")[3]).toBe(first);
+  });
+
+  it("clears, and fills again", async () => {
+    const { controls, texts } = setup([1, 2, 3]);
+
+    controls.items!([]);
+    await flush();
+    expect(texts()).toEqual([]);
+
+    controls.items!([3, 4]);
+    await flush();
+    expect(texts()).toEqual([3, 4]);
+  });
+
+  // Every combination of moved, removed, and new rows has to end up in order.
+  it("ends up in the right order for any change", async () => {
+    let seed = 42;
+    const random = (max: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % max;
+    };
+    const { controls, texts } = setup([1, 2, 3]);
+
+    for (let round = 0; round < 200; round += 1) {
+      const pool = Array.from({ length: 30 }, (_, index) => index);
+      const next: number[] = [];
+      const size = random(25);
+      for (let index = 0; index < size; index += 1) {
+        next.push(pool.splice(random(pool.length), 1)[0]!);
+      }
+
+      controls.items!(next);
+      await new Promise<void>((resolve) => queueMicrotask(() => queueMicrotask(resolve)));
+
+      expect(texts()).toEqual(next);
+    }
+  });
+});
+
 describe("unmounting a root", () => {
   it("empties the target, stops effects, and runs cleanups", async () => {
     const root = createRoot();

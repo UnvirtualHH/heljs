@@ -27,6 +27,10 @@ That matters because the framework is intentionally trying to stay small.
 - it is not a full global state architecture
 - it is not trying to replicate every Solid store capability
 
+### Event limits
+
+- `onClick` is delegated to `document`, so it does not fire on detached elements, see [API-REFERENCE.md](API-REFERENCE.md)
+
 ### Router limits
 
 - no nested routes

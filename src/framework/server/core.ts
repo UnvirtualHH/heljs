@@ -189,28 +189,28 @@ export function useContext<T>(context: ContextDefinition<T>): T {
 
 export function node<T>(read: () => T): NodeFactory<T> {
   return {
-    [NODE_FACTORY]: true,
+    $t: NODE_FACTORY,
     read,
   };
 }
 
 export function text<T>(cellValue: Cell<T>): TextBinding<T> {
   return {
-    [TEXT_BINDING]: true,
+    $t: TEXT_BINDING,
     cell: cellValue,
   };
 }
 
 export function attr<T>(cellValue: Cell<T>): AttrBinding<T> {
   return {
-    [ATTR_BINDING]: true,
+    $t: ATTR_BINDING,
     cell: cellValue,
   };
 }
 
 export function tpl<T>(html: string, read: () => T): TemplateFactory<T> {
   return {
-    [TEMPLATE_FACTORY]: true,
+    $t: TEMPLATE_FACTORY,
     html,
     read,
   };
@@ -218,14 +218,14 @@ export function tpl<T>(html: string, read: () => T): TemplateFactory<T> {
 
 export function ref<T extends Element>(assign: (value: T) => void): RefBinding<T> {
   return {
-    [REF_BINDING]: true,
+    $t: REF_BINDING,
     assign,
   };
 }
 
 function createDynamic<T>(kind: DynamicKind, read: () => T): Dynamic<T> {
   return {
-    [DYNAMIC]: true,
+    $t: DYNAMIC,
     kind,
     read,
   };
@@ -253,7 +253,7 @@ export function branch<T>(
   alternate: () => T,
 ): BranchBinding<T> {
   return {
-    [BRANCH]: true,
+    $t: BRANCH,
     when,
     consequent,
     alternate,
@@ -266,7 +266,7 @@ export function list<T>(
   render: (item: T, index: number) => unknown,
 ): KeyedList<T> {
   return {
-    [LIST]: true,
+    $t: LIST,
     read,
     key,
     render,

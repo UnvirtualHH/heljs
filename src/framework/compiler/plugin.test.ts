@@ -48,7 +48,8 @@ describe("JSX text and static templates", () => {
   });
 
   it("writes void tags once in a template", () => {
-    expect(firstTemplate(transform(`function Comp(props) { return <div>{props.a}<p>a<br />b</p></div>; }`))).toBe("<p>a<br>b</p>");
+    expect(firstTemplate(transform(`function Comp(props) { return <section><Other /><p>a<br />b</p></section>; }`))).toBe(undefined);
+    expect(firstTemplate(transform(`function Comp(props) { return <>{props.a}<p>a<br />b</p></>; }`))).toBe("<p>a<br>b</p>");
   });
 
   it("does not build a template from an SVG child on its own", () => {
@@ -58,7 +59,7 @@ describe("JSX text and static templates", () => {
   });
 
   it("does build a template from a whole static SVG", () => {
-    expect(firstTemplate(transform(`function Comp(props) { return <div>{props.a}<svg><circle r="1" /></svg></div>; }`))).toContain("<svg><circle");
+    expect(firstTemplate(transform(`function Comp(props) { return <>{props.a}<svg><circle r="1" /></svg></>; }`))).toContain("<svg><circle");
   });
 });
 
@@ -85,6 +86,33 @@ describe("async functions", () => {
   it("allows async functions inside a component", () => {
     expect(transformError(`function Comp() { let n = 0; async function save() { n = await load(); } return <button onClick={save}>{n}</button>; }`)).toBeNull();
     expect(transformError(`async function load() { return <div />; }`)).toBeNull();
+  });
+});
+
+describe("a row's key", () => {
+  it("needs no slot when the row reads the same property", () => {
+    const output = transform(`
+      import { For } from "hel/runtime";
+      function List(props) {
+        return <ul><For each={props.rows} key={(row) => row.id}>{(row) => <li onClick={() => pick(row.id)}>{row.id}: {row.label}</li>}</For></ul>;
+      }
+    `).replace(/\s+/g, " ");
+
+    expect(output).toMatch(/__row\(\(_item, _index, _key\)/);
+    expect(output).toContain("pick(_key)");
+    expect(output).toContain("_item().label");
+    expect(output).not.toContain("_item().id");
+  });
+
+  it("is not used for anything else, or without a simple key", () => {
+    const other = transform(`
+      import { For } from "hel/runtime";
+      function List(props) {
+        return <ul><For each={props.rows} key={(row) => row.id + 1}>{(row) => <li>{row.id}</li>}</For></ul>;
+      }
+    `);
+
+    expect(other).toContain("_item().id");
   });
 });
 
@@ -125,24 +153,44 @@ describe("compiler plugin", () => {
       }
     `);
 
-    expect(output).toMatchInlineSnapshot(`
-      "import { cell as __cell, get as __get, component as __component, h as __h, node as __node, text as __text, tpl as __tpl } from "hel/runtime";
-      export function Banner() {const __cell_count_0 = __cell(
-          0);
-        return __h("section", null, __tpl("<h1>Static</h1>", () => __h("h1", null, "Static")), __node(() => __h("p", null, __text(__cell_count_0))));
-      }__component(Banner);"
-    `);
+    const compact = output.replace(/\s+/g, " ");
+    expect(compact).toContain('desc: ["section", null, ["h1", null, "Static"], ["p", null, 0]]');
+    expect(compact).toContain("__tree(__tree_0, [__text(__cell_count_0)])");
   });
 
   it("uses template factories for fully static jsx subtrees", () => {
     const output = transform(`
       export function Banner() {
-        return <section><div class="hero"><strong>Hel</strong><span>Static</span></div></section>;
+        return <><div class="hero"><strong>Hel</strong><span>Static</span></div></>;
       }
     `);
 
     expect(output).toContain('__tpl("<div class=\\"hero\\"><strong>Hel</strong><span>Static</span></div>"');
     expect(output).not.toContain("__node(() => __h(\"div\"");
+  });
+
+  it("describes a whole element tree once, in the module", () => {
+    const output = transform(`
+      export function Row(props) {
+        return <tr class={props.kind}><td class="a">{props.id}</td><td><a onClick={props.pick}>{props.label}</a></td></tr>;
+      }
+      export function Other(props) {
+        return <tr class={props.kind}><td class="a">{props.id}</td><td><a onClick={props.pick}>{props.label}</a></td></tr>;
+      }
+    `).replace(/\s+/g, " ");
+
+    expect(output).toContain("const __tree_0 = {");
+    expect(output).not.toContain("__tree_1");
+    expect(output).toContain('"class": 0');
+    expect(output.indexOf("__tree_0 = {")).toBeLessThan(output.indexOf("function Row"));
+  });
+
+  it("leaves what a template cannot hold to element-by-element rendering", () => {
+    expect(transform(`function A(p) { return <div {...p}><b>x</b></div>; }`)).not.toContain("__tree(");
+    expect(transform(`function A(p) { return <svg>{p.a}<circle r="1" /></svg>; }`)).toContain("__tree(");
+    expect(transform(`function A(p) { return <circle r={p.r}><title>x</title></circle>; }`)).not.toContain("__tree(");
+    expect(transform(`function A(p) { return <div><textarea>{p.a}</textarea></div>; }`)).not.toContain("__tree(");
+    expect(transform(`function A(p) { return <p>{p.a}</p>; }`)).not.toContain("__tree(");
   });
 
   it("uses direct attr bindings for simple reactive prop reads", () => {
@@ -160,7 +208,7 @@ describe("compiler plugin", () => {
   it("normalizes className when emitting static templates", () => {
     const output = transform(`
       export function Banner() {
-        return <section><div className="hero">Hel</div></section>;
+        return <><div className="hero">Hel</div></>;
       }
     `);
 

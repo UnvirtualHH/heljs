@@ -1196,20 +1196,20 @@ describe("runtime", () => {
       root,
     );
 
-    expect(count.subscribers.size).toBe(1);
+    expect(count.subscribers).not.toBeNull();
     expect(root.querySelector(".value")?.textContent).toBe("1");
 
     set(visible, false);
     await flushMicrotask();
 
     expect(root.querySelector(".value")).toBeNull();
-    expect(count.subscribers.size).toBe(0);
+    expect(count.subscribers).toBeNull();
 
     set(count, 2);
     await flushMicrotask();
 
     expect(root.querySelector(".hidden")?.textContent).toBe("off");
-    expect(count.subscribers.size).toBe(0);
+    expect(count.subscribers).toBeNull();
   });
 
   it("renders mapped array children and refreshes the list on updates", async () => {

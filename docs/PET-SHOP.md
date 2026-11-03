@@ -105,7 +105,6 @@ Mounting ranged from 54 to 68 ms on the old runtime, so its difference is within
 ## Not verified
 
 - Other browsers
-- A comparison with other frameworks, which is what `js-framework-benchmark` is for
 - Accessibility beyond labels and roles
 - Real load on the server, or memory over a long session
 
@@ -113,6 +112,7 @@ Mounting ranged from 54 to 68 ms on the old runtime, so its difference is within
 
 In the order I would do them:
 
-1. `js-framework-benchmark`, since the claim about performance has still never been measured against anything else.
-2. The package problems, since nobody can install Hel today: `hel/vite` breaks after a real install, and the name `hel` is taken on npm.
-3. A compiler warning for `.value` read before `.error`.
+1. The package problems, since nobody can install Hel today: `hel/vite` breaks after a real install, and the name `hel` is taken on npm.
+2. A compiler warning for `.value` read before `.error`.
+
+The comparison with other frameworks is in [PERFORMANCE.md](PERFORMANCE.md).

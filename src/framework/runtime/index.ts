@@ -82,6 +82,7 @@ import {
   COMPONENT_REACTIVE_PROPS,
   LIST,
   NODE_FACTORY,
+  renderTree,
   SVG_TAGS,
   TEMPLATE_FACTORY,
   TEXT_BINDING,
@@ -92,6 +93,7 @@ import {
   type NodeFactory,
   type TemplateFactory,
   type TextBinding,
+  type TreeDefinition,
 } from "../shared";
 export type { ContextDefinition, Resource, ResourceOptions } from "../shared";
 import {
@@ -120,6 +122,7 @@ import {
   appendNode,
 } from "./dom";
 import { componentResult } from "./component";
+import { buildTreePlan, instantiateTree, type TreePlan } from "./tree";
 import {
   appendChild,
   applyProps,
@@ -133,7 +136,7 @@ function isDirectTextChild(value: unknown): value is string | number | bigint {
   return typeof value === "string" || typeof value === "number" || typeof value === "bigint";
 }
 
-const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+const IS_DEV = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true;
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 let insideSvg = false;
@@ -293,13 +296,36 @@ export function h(
   }
 }
 
+// Cloning a whole element tree and filling in its dynamic parts is several times
+// cheaper than creating it element by element. Hydration has nodes to claim instead.
+export function tree(definition: TreeDefinition, values: unknown[]): unknown {
+  if (!isHydrating()) {
+    if (definition.plan === null) {
+      definition.plan = buildTreePlan(definition.desc);
+    }
+
+    if (definition.plan) {
+      const previousInsideSvg = insideSvg;
+      insideSvg = definition.desc[0] === "svg";
+
+      try {
+        return instantiateTree(definition.plan as TreePlan, values);
+      } finally {
+        insideSvg = previousInsideSvg;
+      }
+    }
+  }
+
+  return renderTree(definition.desc, values, h as never, node);
+}
+
 function newElement(tag: string, isSvg: boolean): HTMLElement {
   return (isSvg ? document.createElementNS(SVG_NAMESPACE, tag) : document.createElement(tag)) as HTMLElement;
 }
 
 function createElement(tag: string, isSvg: boolean, props: Record<string, unknown> | null, children: unknown[]): Element {
   const element = newElement(tag, isSvg);
-  const deferredProps = props ? applyProps(element, props) : [];
+  const deferredProps = props ? applyProps(element, props) : null;
 
   if (children.length === 1 && isDirectTextChild(children[0])) {
     element.textContent = String(children[0]);
@@ -309,8 +335,10 @@ function createElement(tag: string, isSvg: boolean, props: Record<string, unknow
     }
   }
 
-  for (const run of deferredProps) {
-    run();
+  if (deferredProps) {
+    for (const run of deferredProps) {
+      run();
+    }
   }
 
   return element;
@@ -328,7 +356,7 @@ function hydrateElement(tag: string, isSvg: boolean, props: Record<string, unkno
   const element = claimed ?? newElement(tag, isSvg);
   // The content of a textarea is its value, not children to claim or clear.
   const frame = tag === "textarea" ? null : openHydrationFrame(element, `<${tag}>`);
-  const deferredProps = props ? applyProps(element, props) : [];
+  const deferredProps = props ? applyProps(element, props) : null;
 
   if (!claimed && children.length === 1 && isDirectTextChild(children[0])) {
     element.textContent = String(children[0]);
@@ -338,8 +366,10 @@ function hydrateElement(tag: string, isSvg: boolean, props: Record<string, unkno
     }
   }
 
-  for (const run of deferredProps) {
-    run();
+  if (deferredProps) {
+    for (const run of deferredProps) {
+      run();
+    }
   }
 
   closeHydrationFrame(frame);

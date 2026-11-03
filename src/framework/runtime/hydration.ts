@@ -8,7 +8,7 @@ export type HydrationFrame = {
   label: string;
 };
 
-const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+const IS_DEV = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true;
 
 const hydrationStack: HydrationFrame[] = [];
 const hydratedRoots = new WeakSet<Element>();
@@ -25,10 +25,11 @@ export function isHydrating(): boolean {
 }
 
 export function currentHydrationFrame(parent?: Node): HydrationFrame | null {
-  const frame = hydrationStack[hydrationStack.length - 1] ?? null;
-  if (!frame) {
+  if (hydrationStack.length === 0) {
     return null;
   }
+
+  const frame = hydrationStack[hydrationStack.length - 1]!;
 
   if (parent && frame.parent !== parent) {
     return null;

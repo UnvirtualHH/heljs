@@ -1,4 +1,5 @@
 import { cell, dynAttr, dynBlock, get, set, untrack } from "./core";
+import { delegateClicks } from "./patch";
 import {
   buildRouteTarget,
   findRoute,
@@ -132,10 +133,12 @@ function installRouterEvents(router: InstallableRouter): void {
   }
 
   activeRouterCleanup?.();
+  delegateClicks();
 
   const onClick = (event: MouseEvent) => {
     if (
       event.defaultPrevented ||
+      event.cancelBubble ||
       event.button !== 0 ||
       event.metaKey ||
       event.ctrlKey ||

@@ -2,6 +2,7 @@ import {
   component,
   dynBlock,
   get,
+  node,
   isAttrBinding,
   isBranchBinding,
   isDynamic,
@@ -21,7 +22,9 @@ import {
   isThenable,
   RENDERED_PROMISE_MESSAGE,
   renderRowOnce,
+  renderTree,
   type ErrorBoundaryProps,
+  type TreeDefinition,
 } from "../shared";
 
 const VOID_TAGS = new Set([
@@ -265,7 +268,7 @@ function serializeValue(value: unknown): string {
   }
 
   if (isKeyedList(value)) {
-    return `<!--${BLOCK_START}-->${value.read().map((item, index) => serializeValue(renderRowOnce(value.render, item, index))).join("")}<!--${BLOCK_END}-->`;
+    return `<!--${BLOCK_START}-->${value.read().map((item, index) => serializeValue(renderRowOnce(value.render, item, index, value.key(item, index)))).join("")}<!--${BLOCK_END}-->`;
   }
 
   if (Array.isArray(value)) {
@@ -382,6 +385,10 @@ export function serializeData(value: unknown): string {
     UNSAFE_IN_SCRIPT,
     (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
+}
+
+export function tree(definition: TreeDefinition, values: unknown[]): Renderable {
+  return renderTree(definition.desc, values, h as never, node) as Renderable;
 }
 
 export function frag(...children: Renderable[]): Renderable {

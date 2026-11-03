@@ -1,22 +1,69 @@
 import { runtimeStats } from "./core";
 
-const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
-const eventBindings = new WeakMap<HTMLElement, Map<string, EventListener>>();
+const IS_DEV = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true;
+
+// A click handler sits directly on the element, because a list has one per row.
+type EventHost = HTMLElement & {
+  $click?: EventListener;
+  $events?: Record<string, EventListener>;
+};
 
 function isInstanceOf<T>(value: unknown, ctorName: "HTMLInputElement" | "HTMLTextAreaElement" | "HTMLSelectElement" | "HTMLOptionElement"): value is T {
   const ctor = (globalThis as Record<string, unknown>)[ctorName];
   return typeof ctor === "function" && value instanceof (ctor as typeof Element);
 }
 
+let delegatingClicks = false;
+
+// A list with a click handler per row would otherwise pay for every listener twice:
+// when it is added, and when the row is removed. The walk reproduces what bubbling
+// would do, so a handler sees the same currentTarget and can stop the event.
+function delegateClick(event: Event): void {
+  let node = event.target as (Node & { $click?: EventListener; disabled?: boolean; host?: Node }) | null;
+
+  while (node) {
+    const handler = node.$click;
+
+    if (handler && !node.disabled) {
+      const currentTarget = node;
+      Object.defineProperty(event, "currentTarget", { configurable: true, get: () => currentTarget });
+
+      try {
+        handler.call(node, event);
+      } catch (error) {
+        reportError(error);
+      }
+
+      if (event.cancelBubble) {
+        return;
+      }
+    }
+
+    node = (node.parentNode ?? node.host ?? null) as typeof node;
+  }
+}
+
+// Called early by the router: its own listener has to run after the handlers,
+// which is the order it would see if they were on the elements themselves.
+export function delegateClicks(): void {
+  if (!delegatingClicks && typeof document !== "undefined") {
+    delegatingClicks = true;
+    document.addEventListener("click", delegateClick);
+  }
+}
+
 export function bindEvent(element: HTMLElement, key: string, listener: EventListener): void {
-  let bindings = eventBindings.get(element);
-  if (!bindings) {
-    bindings = new Map<string, EventListener>();
-    eventBindings.set(element, bindings);
+  const host = element as EventHost;
+  const eventName = key.slice(2).toLowerCase();
+
+  if (eventName === "click") {
+    delegateClicks();
+    host.$click = listener;
+    return;
   }
 
-  const eventName = key.slice(2).toLowerCase();
-  const previous = bindings.get(key);
+  const bindings = (host.$events ??= {});
+  const previous = bindings[eventName];
 
   if (previous === listener) {
     return;
@@ -27,29 +74,31 @@ export function bindEvent(element: HTMLElement, key: string, listener: EventList
   }
 
   element.addEventListener(eventName, listener);
-  bindings.set(key, listener);
+  bindings[eventName] = listener;
 }
 
 function syncEventBindings(current: HTMLElement, next: HTMLElement): void {
-  const currentBindings = eventBindings.get(current);
-  const nextBindings = eventBindings.get(next);
+  (current as EventHost).$click = (next as EventHost).$click;
+
+  const currentBindings = (current as EventHost).$events;
+  const nextBindings = (next as EventHost).$events;
 
   if (!currentBindings && !nextBindings) {
     return;
   }
 
   if (currentBindings) {
-    for (const [key, listener] of currentBindings.entries()) {
-      if (!nextBindings?.has(key)) {
-        current.removeEventListener(key.slice(2).toLowerCase(), listener);
-        currentBindings.delete(key);
+    for (const eventName in currentBindings) {
+      if (!nextBindings?.[eventName]) {
+        current.removeEventListener(eventName, currentBindings[eventName]!);
+        delete currentBindings[eventName];
       }
     }
   }
 
   if (nextBindings) {
-    for (const [key, listener] of nextBindings.entries()) {
-      bindEvent(current, key, listener);
+    for (const eventName in nextBindings) {
+      bindEvent(current, `on${eventName}`, nextBindings[eventName]!);
     }
   }
 }
@@ -122,7 +171,17 @@ function syncSpecialElementState(current: HTMLElement, next: HTMLElement): void 
 }
 
 function hasEventBindings(element: HTMLElement): boolean {
-  return Boolean(eventBindings.get(element)?.size);
+  if ((element as EventHost).$click) {
+    return true;
+  }
+
+  const bindings = (element as EventHost).$events;
+
+  for (const _eventName in bindings) {
+    return true;
+  }
+
+  return false;
 }
 
 function needsSpecialStateSync(current: HTMLElement, next: HTMLElement): boolean {
