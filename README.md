@@ -16,44 +16,48 @@ The current state is a usable M2 prototype with client rendering, SSR HTML outpu
 
 Additional docs:
 
-- Getting started: [GETTING-STARTED.md](C:/projects/hellscript/codex%20version/docs/GETTING-STARTED.md)
-- API reference: [API-REFERENCE.md](C:/projects/hellscript/codex%20version/docs/API-REFERENCE.md)
-- SSR and hydration: [SSR-HYDRATION.md](C:/projects/hellscript/codex%20version/docs/SSR-HYDRATION.md)
-- Reactivity model: [REACTIVITY.md](C:/projects/hellscript/codex%20version/docs/REACTIVITY.md)
-- Performance guide: [PERFORMANCE.md](C:/projects/hellscript/codex%20version/docs/PERFORMANCE.md)
-- Limits and non-goals: [LIMITS-AND-NON-GOALS.md](C:/projects/hellscript/codex%20version/docs/LIMITS-AND-NON-GOALS.md)
-- Release and publish flow: [RELEASING.md](C:/projects/hellscript/codex%20version/docs/RELEASING.md)
-- Architecture: [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
+- Getting started: [GETTING-STARTED.md](docs/GETTING-STARTED.md)
+- API reference: [API-REFERENCE.md](docs/API-REFERENCE.md)
+- SSR and hydration: [SSR-HYDRATION.md](docs/SSR-HYDRATION.md)
+- Reactivity model: [REACTIVITY.md](docs/REACTIVITY.md)
+- Performance guide: [PERFORMANCE.md](docs/PERFORMANCE.md)
+- Limits and non-goals: [LIMITS-AND-NON-GOALS.md](docs/LIMITS-AND-NON-GOALS.md)
+- Release and publish flow: [RELEASING.md](docs/RELEASING.md)
+- Architecture: [M2-DESIGN.md](docs/M2-DESIGN.md)
+
+## See It in a Real App
+
+[pet-shop](pet-shop) is a complete shop with a real API and server rendering, in about 1,300 lines without a single `cell`, `get`, `set`, `effect`, or `memo`. What building it found is in [docs/PET-SHOP.md](docs/PET-SHOP.md).
 
 ## Project Structure
 
 The active structure is now split by responsibility:
 
-- [src/demo](C:/projects/hellscript/codex%20version/src/demo)
+- [src/demo](src/demo)
   - demo app, pages, data, entry points, styles
-- [src/framework/compiler](C:/projects/hellscript/codex%20version/src/framework/compiler)
+- [src/framework/compiler](src/framework/compiler)
   - AST transform and compiler metrics
-- [src/framework/runtime](C:/projects/hellscript/codex%20version/src/framework/runtime)
+- [src/framework/runtime](src/framework/runtime)
   - client runtime, DOM, hydration, router, slots
-- [src/framework/server](C:/projects/hellscript/codex%20version/src/framework/server)
+- [src/framework/server](src/framework/server)
   - SSR runtime, router, string renderer
-- [src/framework/package](C:/projects/hellscript/codex%20version/src/framework/package)
+- [src/framework/package](src/framework/package)
   - package entry points for external projects
 
 Active framework entry points are:
 
-- [src/framework/compiler/plugin.ts](C:/projects/hellscript/codex%20version/src/framework/compiler/plugin.ts)
-- [src/framework/runtime/index.ts](C:/projects/hellscript/codex%20version/src/framework/runtime/index.ts)
-- [src/framework/server/index.ts](C:/projects/hellscript/codex%20version/src/framework/server/index.ts)
-- [src/framework/package/runtime.ts](C:/projects/hellscript/codex%20version/src/framework/package/runtime.ts)
-- [src/framework/package/server.ts](C:/projects/hellscript/codex%20version/src/framework/package/server.ts)
-- [src/framework/package/vite.ts](C:/projects/hellscript/codex%20version/src/framework/package/vite.ts)
+- [src/framework/compiler/plugin.ts](src/framework/compiler/plugin.ts)
+- [src/framework/runtime/index.ts](src/framework/runtime/index.ts)
+- [src/framework/server/index.ts](src/framework/server/index.ts)
+- [src/framework/package/runtime.ts](src/framework/package/runtime.ts)
+- [src/framework/package/server.ts](src/framework/package/server.ts)
+- [src/framework/package/vite.ts](src/framework/package/vite.ts)
 
 The only files intentionally left flat in `src/framework` are:
 
-- [shared.ts](C:/projects/hellscript/codex%20version/src/framework/shared.ts)
-- [jsx.d.ts](C:/projects/hellscript/codex%20version/src/framework/jsx.d.ts)
-- [react-bench-modules.d.ts](C:/projects/hellscript/codex%20version/src/framework/react-bench-modules.d.ts)
+- [shared.ts](src/framework/shared.ts)
+- [jsx.d.ts](src/framework/jsx.d.ts)
+- [react-bench-modules.d.ts](src/framework/react-bench-modules.d.ts)
 
 ## Running the Project
 
@@ -96,9 +100,9 @@ The repo build and the package build are intentionally separate:
 
 The current package entry points are:
 
-- `hel` or `hel/runtime`
-- `hel/server`
-- `hel/vite`
+- `heljs` or `heljs/runtime`
+- `heljs/server`
+- `heljs/vite`
 
 For a local install in another project, the current flow is for example:
 
@@ -108,21 +112,23 @@ npm install
 npm run build:package
 
 # in the other project
-npm install ../hel
+npm install ../heljs
 ```
+
+That links the folder. To get exactly what a release would contain, run `npm pack` in the Hel repo and install the `.tgz` file. Only the runtime, the compiler's Babel packages, and `vite` as a peer come along.
 
 Example imports:
 
 ```ts
-import { mount, h } from "hel";
-import { renderToString } from "hel/server";
-import { helMagicPlugin } from "hel/vite";
+import { mount, h } from "heljs";
+import { renderToString } from "heljs/server";
+import { helMagicPlugin } from "heljs/vite";
 ```
 
 Verified external consumers live in this repo as well:
 
-- [starter](C:/projects/hellscript/codex%20version/starter)
-- [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
+- [starter](starter)
+- [starter-ssr](starter-ssr)
 
 Those starters are built and typechecked as separate projects instead of relying on internal source aliases.
 
@@ -130,17 +136,22 @@ Those starters are built and typechecked as separate projects instead of relying
 
 `starter-ssr` shows the current SSR path as an external project:
 
-- `hel/runtime` in the client build
-- `hel/server` in the SSR build
+- `heljs/runtime` in the client build
+- `heljs/server` in the SSR build
 - a prerender step via a small `entry-server.tsx`
 
 Important for external SSR consumers:
 
-- client code still imports from `hel/runtime`
-- the SSR build must alias `hel/runtime` to `hel/server`
-- that wiring is already shown in [starter-ssr/vite.config.ts](C:/projects/hellscript/codex%20version/starter-ssr/vite.config.ts)
+- app code always imports from `heljs/runtime`
+- in an SSR build, `helMagicPlugin()` resolves that to `heljs/server` by itself
 
-For fast package verification there are now two scripts:
+To check what a user would really get, this installs the tarball into a fresh project outside this repository, then typechecks, builds, renders, and hydrates it:
+
+```bash
+npm run verify:install
+```
+
+For fast package verification there are now two more scripts:
 
 ```bash
 npm run verify:package
@@ -217,11 +228,11 @@ Also supported:
 Not supported in the current state:
 
 - destructuring for reactive `let` declarations
-- component parameters that are not a simple identifier
+- default and rest parameters on components
 
-For reactive `let` destructuring, the compiler now throws a clear error instead of silently producing broken code.
+Both fail with a clear compiler error.
 
-The same applies to this pattern for now:
+Destructured props stay reactive, in the parameter list and in the body:
 
 ```tsx
 function TodoCard({ todo }) {
@@ -229,20 +240,9 @@ function TodoCard({ todo }) {
 }
 ```
 
-At the moment you should accept a `props` identifier and destructure inside the function instead:
-
-```tsx
-function TodoCard(props) {
-  const { todo } = props;
-  return <article>{todo.title}</article>;
-}
-```
-
-Default parameters and rest parameters for components are also intentionally blocked with a clear compiler error in the current state.
-
 ### 3. Normal helper functions work
 
-You can write normal local functions or `const` arrow functions. If they read reactive `let` bindings, the compiler detects that and wires the call into a reactive slot.
+You can write normal local functions or `const` arrow functions. A call in JSX always gets a slot, and the runtime finds what it actually reads.
 
 ```tsx
 export function Counter() {
@@ -269,24 +269,19 @@ export function Counter() {
 
 That is an important difference from simpler approaches that only make direct JSX reads reactive.
 
-### 4. `const` stays normal TypeScript
+### 4. `const` stays up to date
 
-`const` is not rewritten into state.
-
-```tsx
-const factor = 2;
-const doubled = () => count * factor;
-```
-
-This works because `doubled()` reads reactive state when it executes.
-
-What does **not** happen at the moment:
+A top-level `const` that might read state is a derived value. It is computed once per change, however often it is read.
 
 ```tsx
+let count = 0;
+
 const doubled = count * 2;
+const label = format(count);
+const initial = untrack(() => count); // an explicit snapshot
 ```
 
-This does **not** become a cached `memo` or `computed`. It is simply a normal expression evaluated at render time.
+`store(...)`, `new ...`, `use*(...)`, and `create*(...)` are not re-run when their arguments change. See [REACTIVITY.md](docs/REACTIVITY.md) for the exact rules.
 
 ### 5. JSX stays direct and VDOM-free
 
@@ -324,7 +319,7 @@ That is the current **unkeyed** list variant. It is fine for simple cases, but i
 If you want stable keys and DOM reuse on reorder, use the explicit `list(...)` API:
 
 ```tsx
-import { list } from "hel/runtime";
+import { list } from "heljs/runtime";
 
 <ul>
   {list(
@@ -349,7 +344,7 @@ Pragmatically this means:
 - optional `For` as a control-flow helper over both styles
 
 ```tsx
-import { For } from "hel/runtime";
+import { For } from "heljs/runtime";
 
 <ul>
   <For each={todos} key={(todo) => todo.id}>
@@ -371,7 +366,7 @@ Without `key`, `For` simply renders through `map(...)`. With `key`, it uses keye
 For branches there is also optional `Show`:
 
 ```tsx
-import { Show } from "hel/runtime";
+import { Show } from "heljs/runtime";
 
 <Show when={visible} fallback={<p>Hidden</p>}>
   <section>Visible</section>
@@ -415,7 +410,7 @@ A deeper official store with a setter API like `setTodos(i, "done", true)` is st
 For arrays and objects there is also a small proxy store:
 
 ```tsx
-import { store } from "hel/runtime";
+import { store } from "heljs/runtime";
 
 const todos = store([
   { title: "Ship Hel", done: false },
@@ -428,19 +423,17 @@ todos[0].title = "Ship Hel v0.1";
 
 Important semantics:
 
-- intentionally coarse-grained per store
+- proxy-based, with each property tracked separately
 - deep property and array mutations trigger reactivity
-- no fine-grained property dependency graph like Solid stores
-- good enough for small to medium local data structures
-
-The compiler recognizes `store(...)` reads in JSX and local helper functions as reactive dependencies.
+- works in a component and at module level
+- `Date` and `Map` values are not supported yet
 
 ### 9. HTML-first router
 
 The current router is intentionally small:
 
 ```tsx
-import { createRouter } from "hel/runtime";
+import { createRouter } from "heljs/runtime";
 
 const router = createRouter([
   { path: "/", view: () => <Home /> },
@@ -465,6 +458,7 @@ Important semantics:
 - the router only intercepts internal links that it knows about
 - external links, modifier keys, and `target` keep normal browser behavior
 - `router.view()` returns a renderable block directly
+- the page is only rebuilt when the matched route changes, or something the view reads in its own body, so `<TodoDetail id={router.params().id} />` keeps its state and focus
 - `router.isActive("/about")` can be used directly in props
 - `router.params()` returns route params for the currently matched path
 - `router.query()` returns current query params as a plain object
@@ -515,7 +509,7 @@ Intentionally not included yet:
 Hel now has a small context API for shared subtree state.
 
 ```tsx
-import { createContext, useContext } from "hel/runtime";
+import { createContext, useContext } from "heljs/runtime";
 
 const AuthContext = createContext({ role: "guest" });
 
@@ -535,6 +529,59 @@ Current context semantics:
 - rerenders the provider subtree when the provider value changes
 - good fit for auth, theme, and app-shell state
 - intentionally small, not a full dependency-injection layer
+
+### 11. Sharing logic with `use*` functions
+
+Functions named `use*` are compiled like components, also in plain `.ts` files.
+
+```ts
+export function useCart() {
+  let items: CartItem[] = [];
+  const total = items.reduce((sum, item) => sum + item.price, 0);
+
+  function add(item: CartItem) {
+    items = [...items, item];
+  }
+
+  return { items, total, add };
+}
+
+export const cart = useCart(); // a shared instance
+```
+
+```tsx
+function CartBadge() {
+  return <a href="/cart">{cart.items.length} items, {cart.total} €</a>;
+}
+```
+
+Reactive values in the returned object become getters. Returning a reactive value directly or in an array is a compile error, because it would be frozen.
+
+### 12. Loading data
+
+```tsx
+function PetPage(props) {
+  const pet = useResource(() => `/api/pets/${props.id}`, getJson);
+
+  return pet.loading ? <Spinner /> : <PetDetails pet={pet.value} />;
+}
+```
+
+The first function is tracked and identifies the data. The second one is not, and it gets an `AbortSignal`. When the source changes, the old request is aborted and its response ignored. Reading `value` throws if the request failed, unless you check `error` first, so a failure cannot look like empty data.
+
+There is no cache. On the server it never fetches, see [SSR-HYDRATION.md](docs/SSR-HYDRATION.md). An `async` component is a compile error.
+
+### 13. Handling errors
+
+```tsx
+<ErrorBoundary fallback={(error, retry) => <Oops error={error} onRetry={retry} />}>
+  <PetPage id={id} />
+</ErrorBoundary>
+```
+
+It catches component setup, slots, keyed rows, effects, `onMount`, and failed resources, also during SSR and hydration. Event handlers stay with the browser.
+
+Without a boundary, the error goes to `reportError`. A block or text slot that failed shows nothing until its next change, when it tries again.
 
 ## What Internally Becomes What
 
@@ -663,7 +710,7 @@ In short:
 | `disabled={count === 0}` | `dynAttr(() => ...)` plus internal `effect(...)` |
 | `{visible ? <A/> : <B/>}` | specialized `branch(...)` slot plus internal `effect(...)` |
 | `const helper = () => count * 2` | normal helper that reads `get(cell)` when called |
-| `memo(() => count * 2)` | currently **no direct counterpart** |
+| `const doubled = count * 2` | `memo(() => get(cell) * 2)` |
 
 Important:
 
@@ -672,17 +719,11 @@ Important:
 - there is no explicit `memo()` in user code either
 - the runtime implicitly takes the role of `effect()` per slot
 - compiler-generated `cell/get/set` takes the role of `signal()`
-- for `memo()` there is currently only the pragmatic form of a normal helper recalculated when needed
-
-That means a helper like
-
-```tsx
-const doubled = () => count * 2;
-```
-
-is semantically closer to an **uncached derived getter** than to a true `memo`.
+- compiler-generated `memo` takes the role of `memo()` for derived `const` values
 
 ## Current Performance Characteristics
+
+In [js-framework-benchmark](docs/PERFORMANCE.md), run locally and not yet official, Hel is in one group with Solid and Svelte, ahead of Vue and React. Read the caveats there before quoting it.
 
 The current state already does a few important things:
 
@@ -691,28 +732,27 @@ The current state already does a few important things:
 - text slots patch only text nodes
 - attr slots patch only the relevant attribute or property
 - only real structural changes go through block slots
-- conditional toggles in the hot path use specialized branch slots instead of generic `dynBlock(...)`
+- conditional toggles use specialized branch slots
 - keyed `list(...)` can reuse DOM nodes on reorder
 - no virtual DOM
 
 Still missing:
 
-- cached derived values or a true `memo`
-- optimized template-cloning paths for static subtrees
+- optimized template-cloning paths for dynamic subtrees
 
 ## Current Limits
 
-- Only PascalCase components are transformed.
-- Only `let` becomes automatic reactive state.
+- Components are PascalCase functions, anonymous default exports containing JSX, or functions containing JSX passed to a call.
+- Only top-level `let` and `const` in components and `use*` functions are transformed.
 - Destructuring for reactive `let` is not implemented yet.
-- Local function analysis is intentionally conservative and intra-component only.
-- Hydration currently covers the intended happy path and mismatch fallback, but not every structural edge case.
-- The built-in `store(...)` is intentionally coarse-grained and local.
-- `list(...)` is still the official keyed story; automatic keyed compiler detection does not exist yet.
+- A module-level `let` is not reactive, and the compiler warns when JSX reads one.
+- Hydration covers the intended path and mismatch fallback, but not every structural edge case.
+- Reads after an `await` are not tracked, and `onCleanup` and `useContext` do not work there.
+- `list(...)` and keyed `For` are the official keyed story. There is no automatic keyed compiler detection.
 
 ## Relevant Files
 
-- `src/framework/compiler/plugin.ts`: AST transform for components, `let`, helper analysis, and JSX slots
+- `src/framework/compiler/plugin.ts`: AST transform for components, `use*` functions, `let`, derived `const`, and JSX slots
 - `src/framework/compiler/metrics.ts`: compiler metrics for transform output
 - `src/framework/runtime/index.ts`: public runtime API and DOM entry points
 - `src/framework/runtime/*`: split runtime for core, DOM, patching, slots, router, and hydration
@@ -725,3 +765,7 @@ Still missing:
 - `src/demo/pages/*`: split demo pages
 - `src/demo/components/*`: reusable demo building blocks
 - `docs/M2-DESIGN.md`: architecture and next steps toward hydration and SSR
+
+## License
+
+[MIT](LICENSE)

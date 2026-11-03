@@ -9,7 +9,7 @@ It is intentionally scoped to what exists today:
 - local mismatch fallback
 - small router integration
 
-It is not a full meta-framework data loading model.
+It is not a full meta-framework data loading model, but see [Data on the Server](#data-on-the-server).
 
 ## Mental Model
 
@@ -20,8 +20,8 @@ It is not a full meta-framework data loading model.
 
 At build time there are two execution targets:
 
-- `hel/runtime` for the browser
-- `hel/server` for SSR
+- `heljs/runtime` for the browser
+- `heljs/server` for SSR
 
 The important rule is:
 
@@ -62,7 +62,7 @@ The intended result is:
 ### Client
 
 ```ts
-import { hydrate, mount } from "hel/runtime";
+import { hydrate, mount } from "heljs/runtime";
 ```
 
 - use `mount(...)` when there is no prerendered HTML
@@ -87,7 +87,7 @@ if (root.firstChild) {
 ### Server
 
 ```ts
-import { renderToString } from "hel/server";
+import { renderToString } from "heljs/server";
 ```
 
 Example:
@@ -112,36 +112,25 @@ That means the built demo already exercises the real SSR -> hydration path.
 
 There is a verified external example in:
 
-- [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
+- [starter-ssr](../starter-ssr)
 
 Important rule for external SSR projects:
 
-- app code still imports from `hel/runtime`
-- the SSR build must alias `hel/runtime` to `hel/server`
+- app code always imports from `heljs/runtime`
+- in an SSR build, `helMagicPlugin()` resolves that to `heljs/server` by itself
 
-Example from the starter:
+The Vite config needs nothing beyond the plugin:
 
 ```ts
-import path from "node:path";
 import { defineConfig } from "vite";
-import { helMagicPlugin } from "hel/vite";
+import { helMagicPlugin } from "heljs/vite";
 
-export default defineConfig(({ isSsrBuild }) => ({
+export default defineConfig({
   plugins: [helMagicPlugin()],
-  resolve: {
-    alias: [
-      {
-        find: "hel/runtime",
-        replacement: isSsrBuild
-          ? "hel/server"
-          : path.resolve(__dirname, "node_modules/hel/dist/package/runtime.js"),
-      },
-    ],
-  },
-}));
+});
 ```
 
-That split is required because the compiled application code imports runtime helpers through the public runtime path, while SSR needs the server implementation behind the same surface.
+Compiled code imports its helpers from the public runtime path, and SSR needs the server implementation behind that same name, which is what the plugin takes care of.
 
 ## Router + SSR
 
@@ -164,7 +153,45 @@ On the client:
 
 - internal anchors are intercepted
 - `popstate` is wired
-- `router.view()` updates as path and query change
+- `router.view()` updates when the matched route changes, and everything else reaches the page through its slots
+
+## Data on the Server
+
+`renderToString` is synchronous, and the server never fetches. A `useResource` without `initial` renders its loading state, and the client fetches right after hydrating.
+
+To have data in the HTML, load it first and pass it in:
+
+```tsx
+// entry-server.tsx
+import { renderToString, serializeData } from "heljs/server";
+
+const pets = await api.pets();
+const html = renderToString(() => <App pets={pets} />);
+const page = `${html}<script>window.__DATA__ = ${serializeData({ pets })}</script>`;
+
+// entry-client.tsx
+hydrate(() => <App pets={window.__DATA__.pets} />, root);
+
+// App.tsx
+const pets = useResource(() => "/api/pets", getJson, { initial: props.pets });
+```
+
+While hydrating, `initial` skips the first fetch. A later instance, such as coming back to the route, starts from it and fetches, because the data is no longer known to be fresh.
+
+Things to keep in mind:
+
+- a page without preloaded data contains only its loading state, which matters for SEO
+- `export const cart = useCart()` is one instance per server process, shared across requests, so nothing may write to it while rendering
+
+## Errors on the Server
+
+An `<ErrorBoundary>` catches what its children throw and renders the fallback. The error is written to `console.error`, since nobody would see it otherwise. Without a boundary, `renderToString` throws.
+
+The fallback carries a marker, so the client knows that the server failed. That says nothing about the client, which renders the children fresh right after hydrating, without a mismatch warning. If it fails as well, it shows the fallback.
+
+## Text
+
+The HTML parser merges adjacent text, so `{breed}, {age} years` arrives as one text node. Each slot claims its part and leaves the rest for the next one. Whitespace and empty values may not exist on the server's side at all, which is not a mismatch.
 
 ## Mismatch Behavior
 
@@ -172,7 +199,7 @@ Hydration is not allowed to fail silently in a dangerous way.
 
 Current behavior:
 
-- in development: warn with path information
+- in development: warn with path information. A production build shows no warning, so check hydration in a development build
 - in production: remount the smallest affected local subtree
 
 This is a practical tradeoff:
@@ -206,7 +233,7 @@ Do not assume yet:
 
 ## Related Docs
 
-1. [GETTING-STARTED.md](C:/projects/hellscript/codex%20version/docs/GETTING-STARTED.md)
-2. [API-REFERENCE.md](C:/projects/hellscript/codex%20version/docs/API-REFERENCE.md)
-3. [REACTIVITY.md](C:/projects/hellscript/codex%20version/docs/REACTIVITY.md)
-4. [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
+1. [GETTING-STARTED.md](GETTING-STARTED.md)
+2. [API-REFERENCE.md](API-REFERENCE.md)
+3. [REACTIVITY.md](REACTIVITY.md)
+4. [M2-DESIGN.md](M2-DESIGN.md)

@@ -4,7 +4,7 @@ The release path is now set up so that an npm release is no longer a collection 
 
 ## Prerequisites
 
-- the npm package name and version in [package.json](C:/projects/hellscript/codex%20version/package.json) are correct
+- the npm package name and version in [package.json](../package.json) are correct
 - `NPM_TOKEN` is configured as a GitHub Actions secret
 - the working tree is clean
 
@@ -24,9 +24,11 @@ That runs:
 3. the normal app and SSR build
 4. the package build
 5. external consumer verification:
-   - [starter](C:/projects/hellscript/codex%20version/starter)
-   - [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
-6. `npm pack --dry-run`
+   - [starter](../starter)
+   - [starter-ssr](../starter-ssr)
+6. the [pet shop](../pet-shop)
+7. a fresh install of the real tarball into a project outside this repository
+8. `npm pack --dry-run`
 
 If you only want to validate the consumers against an already built package:
 
@@ -39,9 +41,9 @@ npm run verify:starters
 There are two relevant workflows:
 
 - CI:
-  - [ci.yml](C:/projects/hellscript/codex%20version/.github/workflows/ci.yml)
+  - [ci.yml](../.github/workflows/ci.yml)
 - Release:
-  - [release.yml](C:/projects/hellscript/codex%20version/.github/workflows/release.yml)
+  - [release.yml](../.github/workflows/release.yml)
 
 ### CI
 
@@ -53,6 +55,8 @@ CI verifies on push and pull request:
 - `npm run build`
 - `npm run build:package`
 - `npm run verify:starters`
+- `npm run verify:pet-shop`
+- `npm run verify:install`
 
 ### Release
 
@@ -80,7 +84,7 @@ npm publish artifacts/*.tgz --access public --provenance
 
 ## Recommended Release Flow
 
-1. bump the version in [package.json](C:/projects/hellscript/codex%20version/package.json)
+1. bump the version in [package.json](../package.json)
 2. run `npm run release:check` locally
 3. commit the change
 4. create a tag, for example:

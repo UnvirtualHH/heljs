@@ -1,0 +1,18 @@
+{
+  "name": "js-framework-benchmark-hel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "js-framework-benchmark": {
+    "frameworkVersion": "0.1.0",
+    "frameworkHomeURL": "https://github.com/UnvirtualHH/heljs",
+    "language": "TypeScript"
+  },
+  "scripts": {
+    "dev": "vite build --watch",
+    "build-prod": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^6.4.1"
+  }
+}

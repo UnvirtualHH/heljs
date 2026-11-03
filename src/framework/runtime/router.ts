@@ -1,4 +1,5 @@
 import { cell, dynAttr, dynBlock, get, set, untrack } from "./core";
+import { delegateClicks } from "./patch";
 import {
   buildRouteTarget,
   findRoute,
@@ -31,6 +32,7 @@ export type BrowserRouter = {
   navigate: (target: string | number, options?: { replace?: boolean }) => void;
   view: () => Dynamic<unknown>;
   isActive: (path: string) => Dynamic<boolean>;
+  hasMatch: () => boolean;
 };
 
 type InstallableRouter = BrowserRouter & {
@@ -52,6 +54,7 @@ export function createBrowserRouter(
   );
   const initialMatch = findRoute(routes, initialLocation.path);
   const path = cell(initialLocation.path);
+  const matchedRoute = cell(initialMatch?.route ?? null);
   const params = cell<Record<string, string>>(initialMatch?.params ?? {});
   const query = cell<Record<string, string>>(initialLocation.query);
 
@@ -91,6 +94,7 @@ export function createBrowserRouter(
       }
 
       set(path, nextLocation.path);
+      set(matchedRoute, nextMatch?.route ?? null);
 
       const nextParams = nextMatch?.params ?? {};
       if (!shallowEqual(get(params), nextParams)) {
@@ -103,18 +107,20 @@ export function createBrowserRouter(
       }
     },
     view: () =>
+      // Params and query reach the page through its slots. Rebuilding it for them
+      // would lose its state and the focus of an input bound to the URL.
       dynBlock(() => {
-        const current = get(path);
-        get(query);
-        const match = findRoute(routes, current);
-        if (match) {
-          return untrack(() => match.route.view());
+        const route = get(matchedRoute);
+        if (route) {
+          return route.view();
         }
 
+        const current = get(path);
         return untrack(() => renderNotFound(current));
       }),
     isActive: (targetPath: string) =>
       dynAttr(() => Boolean(matchRoutePath(targetPath, get(path)))),
+    hasMatch: () => get(matchedRoute) !== null,
   };
 
   installRouterEvents(router);
@@ -127,10 +133,12 @@ function installRouterEvents(router: InstallableRouter): void {
   }
 
   activeRouterCleanup?.();
+  delegateClicks();
 
   const onClick = (event: MouseEvent) => {
     if (
       event.defaultPrevented ||
+      event.cancelBubble ||
       event.button !== 0 ||
       event.metaKey ||
       event.ctrlKey ||

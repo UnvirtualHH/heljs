@@ -310,7 +310,7 @@ describe("runtime", () => {
     expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Alpha"]);
   });
 
-  it("reuses the previous list branch when toggling a block off and on again", async () => {
+  it("rebuilds a list branch when toggling a block off and on again", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
 
@@ -349,11 +349,11 @@ describe("runtime", () => {
     set(visible, true);
     await flushMicrotask();
 
-    expect(root.querySelector("ul")).toBe(listBefore);
+    expect(root.querySelector("ul")).not.toBe(listBefore);
     expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Alpha"]);
   });
 
-  it("keeps retained list branches up to date while they are hidden", async () => {
+  it("shows the latest list when a hidden block is shown again", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
 
@@ -394,7 +394,7 @@ describe("runtime", () => {
     expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Updated"]);
   });
 
-  it("keeps branch slots stable and reuses retained list branches", async () => {
+  it("rebuilds a branch slot with the latest list when it is shown again", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
 
@@ -437,7 +437,7 @@ describe("runtime", () => {
     set(visible, true);
     await flushMicrotask();
 
-    expect(root.querySelector("ul")).toBe(listBefore);
+    expect(root.querySelector("ul")).not.toBe(listBefore);
     expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Updated"]);
   });
 
@@ -1196,20 +1196,20 @@ describe("runtime", () => {
       root,
     );
 
-    expect(count.subscribers.size).toBe(1);
+    expect(count.subscribers).not.toBeNull();
     expect(root.querySelector(".value")?.textContent).toBe("1");
 
     set(visible, false);
     await flushMicrotask();
 
     expect(root.querySelector(".value")).toBeNull();
-    expect(count.subscribers.size).toBe(0);
+    expect(count.subscribers).toBeNull();
 
     set(count, 2);
     await flushMicrotask();
 
     expect(root.querySelector(".hidden")?.textContent).toBe("off");
-    expect(count.subscribers.size).toBe(0);
+    expect(count.subscribers).toBeNull();
   });
 
   it("renders mapped array children and refreshes the list on updates", async () => {
@@ -1722,7 +1722,7 @@ describe("runtime", () => {
     expect(root.querySelector("p")?.textContent).toBe("Value: 1");
   });
 
-  it("hydrates retained branch slots and switches them without remounting the list branch", async () => {
+  it("hydrates branch slots and rebuilds the list branch when it is shown again", async () => {
     window.history.replaceState(null, "", "/");
 
     const root = document.createElement("div");
@@ -1787,7 +1787,7 @@ describe("runtime", () => {
     set(visible, true);
     await flushMicrotask();
 
-    expect(root.querySelector("ul")).toBe(listBefore);
+    expect(root.querySelector("ul")).not.toBe(listBefore);
     expect(Array.from(root.querySelectorAll("li"), (entry) => entry.textContent)).toEqual(["Updated"]);
   });
 

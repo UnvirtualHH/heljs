@@ -19,7 +19,7 @@ describe("transform metrics", () => {
     expect(form?.dynAttr).toBe(0);
 
     expect(staticTree).toBeDefined();
-    expect(staticTree?.tpl).toBeGreaterThanOrEqual(1);
+    expect(staticTree?.tree).toBeGreaterThanOrEqual(1);
 
     expect(listBlock).toBeDefined();
     expect(listBlock?.dynBlock).toBeGreaterThanOrEqual(1);

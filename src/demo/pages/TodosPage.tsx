@@ -1,4 +1,4 @@
-import { For, Show } from "hel/runtime";
+import { For, Show } from "heljs/runtime";
 import type { TodoFilter, TodoItem, TodoPriority } from "../types";
 
 type TodosPageProps = {

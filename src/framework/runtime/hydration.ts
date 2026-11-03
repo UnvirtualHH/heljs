@@ -8,7 +8,7 @@ export type HydrationFrame = {
   label: string;
 };
 
-const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+const IS_DEV = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true;
 
 const hydrationStack: HydrationFrame[] = [];
 const hydratedRoots = new WeakSet<Element>();
@@ -25,10 +25,11 @@ export function isHydrating(): boolean {
 }
 
 export function currentHydrationFrame(parent?: Node): HydrationFrame | null {
-  const frame = hydrationStack[hydrationStack.length - 1] ?? null;
-  if (!frame) {
+  if (hydrationStack.length === 0) {
     return null;
   }
+
+  const frame = hydrationStack[hydrationStack.length - 1]!;
 
   if (parent && frame.parent !== parent) {
     return null;
@@ -146,6 +147,16 @@ export function closeHydrationFrame(frame: HydrationFrame | null): void {
   }
 }
 
+// A throw leaves nested frames open. Whatever this frame still holds is replaced
+// by the code that caught it, so its cursor moves past those nodes.
+export function unwindHydrationFrames(frame: HydrationFrame): void {
+  while (hydrationStack.length > 0 && hydrationStack[hydrationStack.length - 1] !== frame) {
+    hydrationStack.pop();
+  }
+
+  frame.current = frame.boundary;
+}
+
 export function clearRemainingHydrationNodes(frame: HydrationFrame): void {
   while (frame.current && frame.current !== frame.boundary) {
     const node = frame.current;
@@ -156,6 +167,26 @@ export function clearRemainingHydrationNodes(frame: HydrationFrame): void {
 
 export function isCommentNode(node: Node | null, data: string): node is Comment {
   return Boolean(node && node.nodeType === Node.COMMENT_NODE && (node as Comment).data === data);
+}
+
+// Blocks can directly contain other blocks, so markers have to be matched by depth.
+export function findBlockEnd(start: Comment): Comment | null {
+  let depth = 0;
+  let cursor = start.nextSibling;
+
+  while (cursor) {
+    if (isCommentNode(cursor, BLOCK_START)) {
+      depth += 1;
+    } else if (isCommentNode(cursor, BLOCK_END)) {
+      if (depth === 0) {
+        return cursor;
+      }
+      depth -= 1;
+    }
+    cursor = cursor.nextSibling;
+  }
+
+  return null;
 }
 
 export function collectNodesBetween(start: Comment, end: Comment): Node[] {

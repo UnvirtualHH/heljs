@@ -1,5 +1,5 @@
 import "./styles.css";
-import { mount } from "hel/runtime";
+import { mount } from "heljs/runtime";
 import { App } from "./App";
 
 const root = document.getElementById("app");

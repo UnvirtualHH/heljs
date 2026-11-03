@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { mount } from "hel/runtime";
+import { mount } from "heljs/runtime";
 
 describe("magic component reactivity", () => {
   const flushMicrotask = () => new Promise<void>((resolve) => queueMicrotask(resolve));

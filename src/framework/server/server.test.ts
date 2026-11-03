@@ -17,7 +17,7 @@ describe("server renderer", () => {
     );
   });
 
-  it("renders retained branch slots with the same block markers used by hydration", () => {
+  it("renders branch slots with the same block markers used by hydration", () => {
     const html = renderToString(() =>
       h(
         "main",

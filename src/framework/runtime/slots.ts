@@ -1,9 +1,12 @@
 import {
+  cell,
   createScope,
   disposeScope,
-  effect,
   flushScopeMounts,
+  createEffect,
+  disposeEffect,
   get,
+  getActiveScope,
   isAttrBinding,
   isBranchBinding,
   isDynamic,
@@ -14,11 +17,14 @@ import {
   isTemplateFactory,
   isTextBinding,
   runWithScope,
+  set,
   untrack,
   type Cell,
+  runProbed,
+  type EffectNode,
   type Scope,
 } from "./core";
-import { isComponentResult } from "./component";
+import type { ComponentResult } from "./component";
 import {
   BLOCK_END,
   BLOCK_START,
@@ -27,10 +33,12 @@ import {
   closeHydrationFrame,
   collectNodesBetween,
   currentHydrationFrame,
+  findBlockEnd,
   isCommentNode,
   isHydrating,
   openHydrationFrame,
   warnHydrationMismatch,
+  type HydrationFrame,
 } from "./hydration";
 import {
   appendNode,
@@ -46,45 +54,124 @@ import {
   tryPatchNodeInPlace,
   tryPatchNodeListInPlace,
 } from "./patch";
-import type { Dynamic, KeyedList } from "../shared";
+import {
+  BRANCH,
+  COMPONENT_RESULT,
+  DYNAMIC,
+  isLiveRow,
+  isThenable,
+  LIST,
+  NODE_FACTORY,
+  RENDERED_PROMISE_MESSAGE,
+  TEMPLATE_FACTORY,
+  TEXT_BINDING,
+  type BranchBinding,
+  type Dynamic,
+  type KeyedList,
+  type NodeFactory,
+  type TemplateFactory,
+  type TextBinding,
+} from "../shared";
 
 type ListEntry<T> = {
-  item: T;
+  item: Cell<T>;
+  index: number;
+  indexCell: Cell<number> | null;
+  position: number;
   key: string | number;
   node: Node;
-  scope: Scope;
-  mountScopes: Scope[];
+  effect: EffectNode | null;
+  content: Scope | null;
 };
 
-const IS_DEV = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+function disposeEntry<T>(entry: ListEntry<T>): void {
+  if (entry.effect) {
+    disposeEffect(entry.effect);
+  }
+  disposeScope(entry.content);
+}
 
-type RetainedBlockBranch = {
-  signature: string;
-  nodes: Node[];
-  scope: Scope;
-  mountScopes: Scope[];
-};
+const IS_DEV = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true;
 
-type MaterializedNodes = {
-  nodes: Node[];
-  mountScopes: Scope[];
-};
+// A scope with cleanups owns live effects or child components, so its nodes
+// cannot be swapped for structurally equal ones without losing those bindings.
+function isStaticScope(scope: Scope | null): boolean {
+  return !scope || scope.cleanups.length === 0;
+}
 
-function renderListEntry<T>(
+// Each row tracks what it read while rendering, so a change only re-renders that row.
+function createListEntry<T>(
   binding: KeyedList<T>,
   item: T,
   index: number,
   key: string | number,
 ): ListEntry<T> {
-  const scope = createScope();
-  const { node, mountScopes } = runWithScope(scope, () => readSingleRenderableNode(binding.render(item, index), "list()"));
-  return {
-    item,
+  const entry: ListEntry<T> = {
+    item: cell(item),
+    index,
+    indexCell: null,
+    position: -1,
     key,
-    node,
-    scope,
-    mountScopes,
+    node: null as unknown as Node,
+    effect: null,
+    content: null,
   };
+  const render = binding.render;
+  const renderRow = isLiveRow<T>(render)
+    ? () =>
+        render(
+          () => get(entry.item),
+          () => get((entry.indexCell ??= cell(entry.index))),
+          entry.key,
+        )
+    : () => render(get(entry.item), entry.index);
+
+  try {
+    const effect = createEffect(() => {
+      const wasStatic = isStaticScope(entry.content);
+      disposeScope(entry.content);
+
+      const nextScope = createScope();
+      entry.content = nextScope;
+      const previous = entry.node;
+      let node: Node;
+
+      try {
+        node = runWithScope(nextScope, () => readSingleRenderableNode(renderRow(), "list()"));
+      } catch (error) {
+        // The old row is disposed, so keeping it on screen would show dead content.
+        if (previous?.parentNode) {
+          entry.node = document.createComment("error");
+          replaceNode(previous.parentNode, entry.node, previous);
+        }
+        throw error;
+      }
+
+      flushScopeMounts(nextScope);
+
+      if (!previous) {
+        entry.node = node;
+        return;
+      }
+
+      if (wasStatic && isStaticScope(nextScope) && tryPatchNodeInPlace(previous, node)) {
+        return;
+      }
+
+      if (previous.parentNode) {
+        replaceNode(previous.parentNode, node, previous);
+      }
+      entry.node = node;
+    }, false);
+
+    // A row that read nothing while rendering can never render again.
+    entry.effect = effect.deps === null ? null : effect;
+  } catch (error) {
+    disposeScope(entry.content);
+    throw error;
+  }
+
+  return entry;
 }
 
 function resolveComponentPropValue(value: unknown): unknown {
@@ -109,44 +196,6 @@ function resolveComponentPropValue(value: unknown): unknown {
   }
 
   return value;
-}
-
-function getNodeSignature(node: Node): string {
-  if (node instanceof HTMLElement) {
-    return `element:${node.tagName}[${Array.from(node.childNodes, getNodeSignature).join("|")}]`;
-  }
-
-  if (node instanceof Text) {
-    return "text";
-  }
-
-  if (node instanceof Comment) {
-    return "comment";
-  }
-
-  return node.nodeName;
-}
-
-function getNodeListSignature(nodes: Node[]): string {
-  return nodes.map(getNodeSignature).join("|");
-}
-
-function containsRetainableMarker(node: Node): boolean {
-  if (isCommentNode(node, BLOCK_START) || isCommentNode(node, BLOCK_END)) {
-    return true;
-  }
-
-  for (const child of node.childNodes) {
-    if (containsRetainableMarker(child)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function shouldRetainBlockBranch(nodes: Node[]): boolean {
-  return nodes.some(containsRetainableMarker);
 }
 
 export function hasReactiveComponentProps(props: Record<string, unknown> | null): boolean {
@@ -193,115 +242,29 @@ function normalizeTextValue(value: unknown): string {
   return String(value);
 }
 
-function collectNodes(value: unknown, out: Node[], mountScopes: Scope[]): void {
-  if (value == null || value === false || value === true) {
-    return;
+function materializeNodes(value: unknown): Node[] {
+  if (value instanceof Element) {
+    return [value];
   }
 
-  if (isComponentResult(value)) {
-    collectNodes(value.value, out, mountScopes);
-    mountScopes.push(value.scope);
-    return;
-  }
-
-  if (isNodeFactory(value)) {
-    collectNodes(value.read(), out, mountScopes);
-    return;
-  }
-
-  if (isTextBinding(value)) {
-    out.push(document.createTextNode(normalizeTextValue(get(value.cell as Cell<unknown>))));
-    return;
-  }
-
-  if (isTemplateFactory(value)) {
-    if (isHydrating()) {
-      collectNodes(value.read(), out, mountScopes);
-      return;
-    }
-
-    collectNodes(cloneTemplate(value.html), out, mountScopes);
-    return;
-  }
-
-  if (isBranchBinding(value)) {
-    collectNodes(value.when() ? value.consequent() : value.alternate(), out, mountScopes);
-    return;
-  }
-
-  if (isKeyedList(value)) {
-    const items = value.read();
-    for (let i = 0; i < items.length; i += 1) {
-      collectNodes(value.render(items[i]!, i), out, mountScopes);
-    }
-    return;
-  }
-
-  if (isDynamic(value)) {
-    if (value.kind === "attr") {
-      return;
-    }
-
-    if (value.kind === "text") {
-      out.push(document.createTextNode(normalizeTextValue(value.read())));
-      return;
-    }
-
-    collectNodes(value.read(), out, mountScopes);
-    return;
-  }
-
-  if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i += 1) {
-      collectNodes(value[i], out, mountScopes);
-    }
-    return;
-  }
-
-  if (value instanceof DocumentFragment) {
-    const children = value.childNodes;
-    for (let i = 0; i < children.length; i += 1) {
-      out.push(children[i]!);
-    }
-    return;
-  }
-
-  if (value instanceof Node) {
-    out.push(value);
-    return;
-  }
-
-  out.push(document.createTextNode(String(value)));
+  const fragment = document.createDocumentFragment();
+  appendChild(fragment, value);
+  return Array.from(fragment.childNodes);
 }
 
-function materializeNodes(value: unknown): MaterializedNodes {
-  const nodes: Node[] = [];
-  const mountScopes: Scope[] = [];
-  collectNodes(value, nodes, mountScopes);
-  return { nodes, mountScopes };
-}
-
-function flushMounts(scopes: Scope[]): void {
-  for (let i = 0; i < scopes.length; i += 1) {
-    flushScopeMounts(scopes[i]!);
-  }
-}
-
-function toRenderableNode(value: unknown): { node: Node; mountScopes: Scope[] } {
-  const { nodes, mountScopes } = materializeNodes(value);
-
-  if (nodes.length === 0) {
-    return {
-      node: document.createComment("empty"),
-      mountScopes,
-    };
-  }
+function readSingleRenderableNode(value: unknown, context: string): Node {
+  const nodes = materializeNodes(value);
 
   if (nodes.length === 1) {
-    return {
-      node: nodes[0]!,
-      mountScopes,
-    };
+    return nodes[0]!;
+  }
+
+  if (IS_DEV) {
+    console.warn(`[hel] ${context} expects each item to render exactly one root node.`);
+  }
+
+  if (nodes.length === 0) {
+    return document.createComment("empty");
   }
 
   const fragment = document.createDocumentFragment();
@@ -309,31 +272,57 @@ function toRenderableNode(value: unknown): { node: Node; mountScopes: Scope[] } 
     fragment.appendChild(node);
   }
 
-  return {
-    node: fragment,
-    mountScopes,
-  };
+  return fragment;
 }
 
-function readSingleRenderableNode(value: unknown, context: string): { node: Node; mountScopes: Scope[] } {
-  const { nodes, mountScopes } = materializeNodes(value);
+// While hydrating, the cursor marks the position. The end of the parent can
+// already hold prerendered siblings, and closing the frame would remove the node.
+function placeNode(parent: Node, node: Node): void {
+  const frame = currentHydrationFrame(parent);
 
-  if (nodes.length === 1) {
-    return {
-      node: nodes[0]!,
-      mountScopes,
-    };
+  if (frame) {
+    insertNodeBefore(parent, node, frame.current);
+    return;
   }
 
-  if (IS_DEV) {
-    console.warn(`[hel] ${context} expects each item to render exactly one root node.`);
+  appendNode(parent, node);
+}
+
+// The HTML parser merges adjacent text, so one server text node can hold several
+// slots. Each slot takes its own part, and leaves the rest for the next one.
+function claimTextPart(frame: HydrationFrame, value: string): Text | null {
+  const next = frame.current;
+
+  if (!value || !next || next === frame.boundary || next.nodeType !== Node.TEXT_NODE || !(next as Text).data.startsWith(value)) {
+    return null;
   }
 
-  return toRenderableNode(value);
+  const text = next as Text;
+  frame.current = text.data.length > value.length ? text.splitText(value.length) : (text.nextSibling as ChildNode | null);
+  return text;
+}
+
+function claimText(parent: Node, value: string): Text | null {
+  const frame = currentHydrationFrame(parent);
+
+  return (
+    (frame && claimTextPart(frame, value)) ??
+    (claimHydrationNode(parent, (node) => node.nodeType === Node.TEXT_NODE) as Text | null)
+  );
 }
 
 function mountStaticText(parent: Node, value: string): void {
-  const claimed = claimHydrationNode(parent, (node) => node.nodeType === Node.TEXT_NODE) as Text | null;
+  const frame = currentHydrationFrame(parent);
+
+  // Whitespace can be missing on the server's side, which is not a mismatch.
+  if (frame && !value.trim()) {
+    if (value && !claimTextPart(frame, value)) {
+      placeNode(parent, document.createTextNode(value));
+    }
+    return;
+  }
+
+  const claimed = claimText(parent, value);
   if (claimed) {
     if (claimed.data !== value) {
       warnHydrationMismatch(`text("${value}")`, claimed);
@@ -345,23 +334,66 @@ function mountStaticText(parent: Node, value: string): void {
   if (currentHydrationFrame(parent)?.current) {
     bailHydration(parent, `text("${value}")`);
   }
-  appendNode(parent, document.createTextNode(value));
+  placeNode(parent, document.createTextNode(value));
 }
 
-function mountTextSlot(parent: Node, read: () => unknown): void {
-  const claimed = claimHydrationNode(parent, (node) => node.nodeType === Node.TEXT_NODE) as Text | null;
-  if (!claimed && currentHydrationFrame(parent)?.current) {
-    bailHydration(parent, "dynamic text");
-  }
-  const text = claimed ?? document.createTextNode("");
+// The compiler cannot always tell text from renderable content (props.children,
+// helpers from other modules), so a slot holding an object becomes a block slot.
+function mountTextSlot(parent: Node, read: () => unknown, placeholder: Text | null = null): void {
+  const owner = getActiveScope();
+  let text = placeholder;
+  let previous = placeholder ? placeholder.data : "";
+  let upgraded = false;
 
-  if (!claimed) {
-    appendNode(parent, text);
-  }
+  createEffect(() => {
+    if (upgraded) {
+      return;
+    }
 
-  let previous = claimed ? text.data : "";
-  effect(() => {
-    const next = normalizeTextValue(read());
+    let value: unknown;
+
+    try {
+      value = runProbed(read);
+    } catch (error) {
+      // The last value is no longer true, and the slot retries on its next change.
+      if (text) {
+        text.data = "";
+        previous = "";
+      }
+      throw error;
+    }
+
+    if (typeof value === "object" && value !== null) {
+      upgraded = true;
+
+      if (!text) {
+        mountBlockSlot(parent, read);
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      runWithScope(owner, () => mountBlockSlot(fragment, read));
+      text.parentNode?.replaceChild(fragment, text);
+      return;
+    }
+
+    if (!text) {
+      const initial = normalizeTextValue(value);
+      // An empty value leaves no text on the server's side, so there is nothing to claim.
+      const claimed = initial ? claimText(parent, initial) : null;
+      if (initial && !claimed && currentHydrationFrame(parent)?.current) {
+        bailHydration(parent, "dynamic text");
+      }
+      text = claimed ?? document.createTextNode("");
+
+      if (!claimed) {
+        placeNode(parent, text);
+      }
+
+      previous = claimed ? text.data : "";
+    }
+
+    const next = normalizeTextValue(value);
     if (next === previous) {
       return;
     }
@@ -372,26 +404,35 @@ function mountTextSlot(parent: Node, read: () => unknown): void {
 }
 
 function mountTextBinding(parent: Node, cell: Cell<unknown>): void {
-  const claimed = claimHydrationNode(parent, (node) => node.nodeType === Node.TEXT_NODE) as Text | null;
-  if (!claimed && currentHydrationFrame(parent)?.current) {
-    bailHydration(parent, "dynamic text");
+  mountTextSlot(parent, () => get(cell));
+}
+
+export function fillTextPlaceholder(parent: Node, text: Text, value: unknown): void {
+  if (typeof value !== "object" || value === null) {
+    text.data = normalizeTextValue(value);
+    return;
   }
-  const text = claimed ?? document.createTextNode("");
 
-  if (!claimed) {
-    appendNode(parent, text);
+  const tag = (value as { $t?: number }).$t;
+
+  if (tag === DYNAMIC && (value as Dynamic).kind === "text") {
+    mountTextSlot(parent, (value as Dynamic).read, text);
+    return;
   }
 
-  let previous = claimed ? text.data : "";
-  effect(() => {
-    const next = normalizeTextValue(get(cell));
-    if (next === previous) {
-      return;
-    }
+  if (tag === TEXT_BINDING) {
+    const { cell } = value as TextBinding;
+    mountTextSlot(parent, () => get(cell as Cell<unknown>), text);
+    return;
+  }
 
-    previous = next;
-    text.data = next;
-  });
+  const holder = document.createDocumentFragment();
+  appendChild(holder, value);
+  parent.replaceChild(holder, text);
+}
+
+function unwrapAttrValue(value: unknown): unknown {
+  return isDynamic(value) ? unwrapAttrValue(value.read()) : value;
 }
 
 function matchesHydratedProperty(element: HTMLElement, key: string, value: unknown): boolean {
@@ -402,10 +443,20 @@ function matchesHydratedProperty(element: HTMLElement, key: string, value: unkno
     !normalizedKey.startsWith("aria-");
 
   if (normalizedKey === "class") {
-    return element.className === normalizeTextValue(value);
+    return (element.getAttribute("class") ?? "") === normalizeTextValue(value);
   }
 
-  if (isDomProperty) {
+  // What the server rendered for a select is the option it marked as selected.
+  if (normalizedKey === "value" && element instanceof HTMLSelectElement) {
+    return element.querySelector("option[selected]")?.getAttribute("value") === String(value ?? "");
+  }
+
+  // Properties can differ from what was rendered: href reads as an absolute URL.
+  if (typeof value === "string" && element.getAttribute(normalizedKey) === value) {
+    return true;
+  }
+
+  if (isDomProperty && !(element instanceof SVGElement)) {
     const current = (element as unknown as Record<string, unknown>)[normalizedKey];
 
     if (typeof current === "boolean") {
@@ -416,7 +467,8 @@ function matchesHydratedProperty(element: HTMLElement, key: string, value: unkno
       return current === "";
     }
 
-    return Object.is(current, value);
+    // An input's value is always a string, also when it is rendered from a number.
+    return typeof current === "string" && typeof value === "number" ? current === String(value) : Object.is(current, value);
   }
 
   if (value == null || value === false) {
@@ -432,27 +484,31 @@ function matchesHydratedProperty(element: HTMLElement, key: string, value: unkno
 
 function writeProperty(element: HTMLElement, key: string, value: unknown): void {
   const normalizedKey = key === "className" ? "class" : key;
-  const isDomProperty =
-    normalizedKey in element &&
-    !normalizedKey.startsWith("data-") &&
-    !normalizedKey.startsWith("aria-");
 
   if (normalizedKey === "class") {
     if (value == null || value === false) {
       element.removeAttribute("class");
-      return;
+    } else if (typeof element.className === "string") {
+      element.className = String(value);
+    } else {
+      // On an SVG element, className is a read-only object.
+      element.setAttribute("class", String(value));
     }
-
-    element.className = String(value);
     return;
   }
+
+  const isDomProperty =
+    normalizedKey in element &&
+    !normalizedKey.startsWith("data-") &&
+    !normalizedKey.startsWith("aria-");
 
   if (normalizedKey === "style" && value && typeof value === "object") {
     Object.assign(element.style, value);
     return;
   }
 
-  if (isDomProperty) {
+  // Most properties of an SVG element are read-only objects.
+  if (isDomProperty && !(element instanceof SVGElement)) {
     const target = element as unknown as Record<string, unknown>;
     const current = target[normalizedKey];
 
@@ -473,7 +529,7 @@ function writeProperty(element: HTMLElement, key: string, value: unknown): void 
       return;
     }
 
-    target[normalizedKey] = value;
+    target[normalizedKey] = typeof value === "number" && typeof current === "string" ? String(value) : value;
     if (typeof value === "string" || typeof value === "number") {
       element.setAttribute(normalizedKey, String(value));
     }
@@ -498,7 +554,7 @@ function mountAttrBinding(element: HTMLElement, key: string, cell: Cell<unknown>
   let previous: unknown;
   let hydrated = isHydrating();
 
-  effect(() => {
+  createEffect(() => {
     const next = get(cell);
 
     if (hydrated) {
@@ -522,183 +578,91 @@ function mountAttrBinding(element: HTMLElement, key: string, cell: Cell<unknown>
   });
 }
 
-function mountBlockSlot(parent: Node, read: () => unknown): void {
+function mountBlockMarkers(parent: Node): { start: Comment; end: Comment; hydrated: boolean } {
   const frame = currentHydrationFrame(parent);
-  let start = frame ? claimHydrationNode(parent, (node) => isCommentNode(node, BLOCK_START)) as Comment | null : null;
-  let end: Comment | null = null;
+  const claimed = frame ? claimHydrationNode(parent, (node) => isCommentNode(node, BLOCK_START)) as Comment | null : null;
+
+  if (claimed && frame) {
+    const claimedEnd = findBlockEnd(claimed);
+
+    if (claimedEnd) {
+      frame.current = claimedEnd.nextSibling as ChildNode | null;
+      return { start: claimed, end: claimedEnd, hydrated: true };
+    }
+
+    frame.current = claimed;
+    bailHydration(parent, `comment(${BLOCK_START}) ... comment(${BLOCK_END})`, null);
+  } else if (frame?.current) {
+    bailHydration(parent, `comment(${BLOCK_START})`);
+  }
+
+  const start = document.createComment(BLOCK_START);
+  const end = document.createComment(BLOCK_END);
+  placeNode(parent, start);
+  placeNode(parent, end);
+  return { start, end, hydrated: false };
+}
+
+function replaceBlockContent(start: Comment, end: Comment, currentNodes: Node[], nextNodes: Node[]): void {
+  const parent = end.parentNode!;
+
+  if (currentNodes.length === 1 && nextNodes.length === 1 && currentNodes[0]!.parentNode === parent) {
+    replaceNode(parent, nextNodes[0]!, currentNodes[0]!);
+    return;
+  }
+
+  replaceNodesBetween(parent, start, end, nextNodes, currentNodes.length);
+}
+
+function mountBlockSlot(parent: Node, read: () => unknown): void {
+  const { start, end, hydrated: startsHydrated } = mountBlockMarkers(parent);
+  let hydrated = startsHydrated;
   let currentNodes: Node[] = [];
   let contentScope: Scope | null = null;
-  let retainedBranch: RetainedBlockBranch | null = null;
-  let hydrated = false;
 
-  onScopeCleanup(() => {
-    disposeScope(contentScope);
-    if (retainedBranch) {
-      disposeScope(retainedBranch.scope);
-      retainedBranch = null;
-    }
-  });
+  onScopeCleanup(() => disposeScope(contentScope));
 
-  if (start && frame) {
-    currentNodes = [];
-    let cursor = start.nextSibling;
-
-    while (cursor && !isCommentNode(cursor, BLOCK_END)) {
-      currentNodes.push(cursor);
-      cursor = cursor.nextSibling;
-    }
-
-    if (isCommentNode(cursor, BLOCK_END)) {
-      end = cursor;
-      frame.current = end.nextSibling as ChildNode | null;
-      hydrated = true;
-    } else {
-      frame.current = start;
-      bailHydration(parent, `comment(${BLOCK_START}) ... comment(${BLOCK_END})`, cursor);
-      start = null;
-      currentNodes = [];
-    }
-  }
-
-  if (!start) {
-    if (frame?.current) {
-      bailHydration(parent, `comment(${BLOCK_START})`);
-    }
-    start = document.createComment(BLOCK_START);
-    end = document.createComment(BLOCK_END);
-    appendNode(parent, start);
-    appendNode(parent, end);
-  } else if (!end) {
-    end = document.createComment(BLOCK_END);
-    appendNode(parent, end);
-  }
-
-  effect(() => {
+  createEffect(() => {
     if (hydrated) {
-      disposeScope(contentScope);
       contentScope = createScope();
-      const blockFrame = openHydrationFrame(parent, "block", end!);
+      const blockFrame = openHydrationFrame(end.parentNode!, "block", end);
       if (blockFrame) {
-        blockFrame.current = start!.nextSibling as ChildNode | null;
+        blockFrame.current = start.nextSibling as ChildNode | null;
       }
       const nextValue = runWithScope(contentScope, () => read());
-      runWithScope(contentScope, () => appendChild(parent, nextValue));
+      runWithScope(contentScope, () => appendChild(end.parentNode!, nextValue));
       flushScopeMounts(contentScope);
       closeHydrationFrame(blockFrame);
       hydrated = false;
-      currentNodes = collectNodesBetween(start!, end!);
+      currentNodes = collectNodesBetween(start, end);
       return;
     }
 
-    if (!shouldRetainBlockBranch(currentNodes) && !retainedBranch) {
-      disposeScope(contentScope);
-      contentScope = createScope();
-      const nextValue = runWithScope(contentScope, () => read());
-      const { nodes: nextNodes, mountScopes } = runWithScope(contentScope, () => materializeNodes(nextValue));
-
-      if (tryPatchNodeListInPlace(currentNodes, nextNodes)) {
-        disposeScope(contentScope);
-        currentNodes = currentNodes.slice();
-        return;
-      }
-
-      if (
-        currentNodes.length === 1 &&
-        nextNodes.length === 1 &&
-        currentNodes[0]!.parentNode === parent
-      ) {
-        replaceNode(parent, nextNodes[0]!, currentNodes[0]!);
-        flushMounts(mountScopes);
-        currentNodes = nextNodes;
-        return;
-      }
-
-      replaceNodesBetween(parent, start!, end!, nextNodes, currentNodes.length);
-      flushMounts(mountScopes);
-      currentNodes = nextNodes;
-      return;
-    }
-
-    const previousScope = contentScope;
+    const wasStatic = isStaticScope(contentScope);
+    disposeScope(contentScope);
     const nextScope = createScope();
-    const nextValue = runWithScope(nextScope, () => read());
-    const { nodes: nextNodes, mountScopes: nextMountScopes } = runWithScope(nextScope, () => materializeNodes(nextValue));
+    contentScope = nextScope;
+    let nextNodes: Node[];
 
-    if (tryPatchNodeListInPlace(currentNodes, nextNodes)) {
-      disposeScope(nextScope);
+    try {
+      nextNodes = runWithScope(nextScope, () => materializeNodes(read()));
+    } catch (error) {
+      // The old content is disposed, so keeping it on screen would show dead slots.
+      replaceBlockContent(start, end, collectNodesBetween(start, end), []);
+      currentNodes = [];
+      throw error;
+    }
+
+    if (wasStatic && isStaticScope(nextScope) && tryPatchNodeListInPlace(currentNodes, nextNodes)) {
       currentNodes = currentNodes.slice();
       return;
     }
 
-    const nextSignature = getNodeListSignature(nextNodes);
-    let chosenNodes = nextNodes;
-    let chosenScope = nextScope;
-
-    if (retainedBranch && retainedBranch.signature === nextSignature) {
-      disposeScope(nextScope);
-      chosenNodes = retainedBranch.nodes;
-      chosenScope = retainedBranch.scope;
-      const chosenMountScopes = retainedBranch.mountScopes;
-      retainedBranch = null;
-      if (
-        currentNodes.length === 1 &&
-        chosenNodes.length === 1 &&
-        currentNodes[0]!.parentNode === parent
-      ) {
-        replaceNode(parent, chosenNodes[0]!, currentNodes[0]!);
-        flushMounts(chosenMountScopes);
-        currentNodes = chosenNodes;
-        contentScope = chosenScope;
-        return;
-      }
-
-      replaceNodesBetween(parent, start!, end!, chosenNodes, currentNodes.length);
-      flushMounts(chosenMountScopes);
-      currentNodes = chosenNodes;
-      contentScope = chosenScope;
-      retainedBranch = null;
-      return;
-    }
-
-    if (previousScope && currentNodes.length > 0 && shouldRetainBlockBranch(currentNodes)) {
-      const previousSignature = getNodeListSignature(currentNodes);
-      if (retainedBranch) {
-        disposeScope(retainedBranch.scope);
-      }
-      retainedBranch = {
-        signature: previousSignature,
-        nodes: currentNodes,
-        scope: previousScope,
-        mountScopes: [],
-      };
-    } else {
-      disposeScope(previousScope);
-    }
-
-    if (
-      currentNodes.length === 1 &&
-      chosenNodes.length === 1 &&
-      currentNodes[0]!.parentNode === parent
-    ) {
-      replaceNode(parent, chosenNodes[0]!, currentNodes[0]!);
-      flushMounts(nextMountScopes);
-      currentNodes = chosenNodes;
-      contentScope = chosenScope;
-      return;
-    }
-
-    replaceNodesBetween(parent, start!, end!, chosenNodes, currentNodes.length);
-    flushMounts(nextMountScopes);
-    currentNodes = chosenNodes;
-    contentScope = chosenScope;
+    replaceBlockContent(start, end, collectNodesBetween(start, end), nextNodes);
+    flushScopeMounts(nextScope);
+    currentNodes = nextNodes;
   });
 }
-
-type BranchEntry = {
-  nodes: Node[];
-  scope: Scope;
-  mountScopes: Scope[];
-};
 
 function mountBranchSlot(
   parent: Node,
@@ -708,197 +672,159 @@ function mountBranchSlot(
     alternate: () => unknown;
   },
 ): void {
-  const frame = currentHydrationFrame(parent);
-  let start = frame ? claimHydrationNode(parent, (node) => isCommentNode(node, BLOCK_START)) as Comment | null : null;
-  let end: Comment | null = null;
+  const { start, end, hydrated: startsHydrated } = mountBlockMarkers(parent);
+  let hydrated = startsHydrated;
   let activeKind: "consequent" | "alternate" | null = null;
-  let activeNodes: Node[] = [];
-  const branches: Partial<Record<"consequent" | "alternate", BranchEntry>> = {};
-  let hydrated = false;
+  let activeScope: Scope | null = null;
 
-  onScopeCleanup(() => {
-    for (const entry of Object.values(branches)) {
-      disposeScope(entry?.scope ?? null);
-    }
-  });
+  onScopeCleanup(() => disposeScope(activeScope));
 
-  if (start && frame) {
-    activeNodes = [];
-    let cursor = start.nextSibling;
-
-    while (cursor && !isCommentNode(cursor, BLOCK_END)) {
-      activeNodes.push(cursor);
-      cursor = cursor.nextSibling;
-    }
-
-    if (isCommentNode(cursor, BLOCK_END)) {
-      end = cursor;
-      frame.current = end.nextSibling as ChildNode | null;
-      hydrated = true;
-    } else {
-      frame.current = start;
-      bailHydration(parent, `comment(${BLOCK_START}) ... comment(${BLOCK_END})`, cursor);
-      start = null;
-      activeNodes = [];
-    }
-  }
-
-  if (!start) {
-    if (frame?.current) {
-      bailHydration(parent, `comment(${BLOCK_START})`);
-    }
-    start = document.createComment(BLOCK_START);
-    end = document.createComment(BLOCK_END);
-    appendNode(parent, start);
-    appendNode(parent, end);
-  } else if (!end) {
-    end = document.createComment(BLOCK_END);
-    appendNode(parent, end);
-  }
-
-  const materializeBranch = (kind: "consequent" | "alternate"): BranchEntry => {
-    const cached = branches[kind];
-    if (cached) {
-      return cached;
-    }
-
-    const scope = createScope();
-    const entry: BranchEntry = {
-      nodes: [],
-      scope,
-      mountScopes: [],
-    };
-    branches[kind] = entry;
-
-    const read = kind === "consequent" ? binding.consequent : binding.alternate;
-    const { nodes, mountScopes } = runWithScope(scope, () => untrack(() => materializeNodes(read())));
-    entry.nodes = nodes;
-    entry.mountScopes = mountScopes;
-    return entry;
-  };
-
-  effect(() => {
+  createEffect(() => {
     const nextKind = binding.when() ? "consequent" : "alternate";
 
+    if (!hydrated && activeKind === nextKind) {
+      return;
+    }
+
+    const read = nextKind === "consequent" ? binding.consequent : binding.alternate;
+    const scope = createScope();
+
     if (hydrated) {
-      const scope = createScope();
-      const read = nextKind === "consequent" ? binding.consequent : binding.alternate;
-      const blockFrame = openHydrationFrame(parent, "branch", end!);
+      activeKind = nextKind;
+      activeScope = scope;
+      const blockFrame = openHydrationFrame(end.parentNode!, "branch", end);
       if (blockFrame) {
-        blockFrame.current = start!.nextSibling as ChildNode | null;
+        blockFrame.current = start.nextSibling as ChildNode | null;
       }
 
-      runWithScope(scope, () => untrack(() => appendChild(parent, read())));
+      runWithScope(scope, () => untrack(() => appendChild(end.parentNode!, read())));
       flushScopeMounts(scope);
       closeHydrationFrame(blockFrame);
-
-      branches[nextKind] = {
-        nodes: collectNodesBetween(start!, end!),
-        scope,
-        mountScopes: [],
-      };
-      activeKind = nextKind;
-      activeNodes = branches[nextKind]!.nodes;
       hydrated = false;
       return;
     }
 
-    if (activeKind === nextKind) {
-      return;
+    disposeScope(activeScope);
+    activeScope = scope;
+
+    const holder = document.createDocumentFragment();
+
+    try {
+      runWithScope(scope, () => untrack(() => appendChild(holder, read())));
+    } catch (error) {
+      // No kind is active now, so the next change renders again instead of
+      // assuming that the arm it selects is already on screen.
+      activeKind = null;
+      replaceNodesBetween(end.parentNode!, start, end, [], collectNodesBetween(start, end).length);
+      throw error;
     }
 
-    const nextEntry = materializeBranch(nextKind);
-
-    if (
-      activeNodes.length === 1 &&
-      nextEntry.nodes.length === 1 &&
-      activeNodes[0]!.parentNode === parent
-    ) {
-      replaceNode(parent, nextEntry.nodes[0]!, activeNodes[0]!);
-      flushMounts(nextEntry.mountScopes);
-      activeKind = nextKind;
-      activeNodes = nextEntry.nodes;
-      return;
-    }
-
-    replaceNodesBetween(parent, start!, end!, nextEntry.nodes, activeNodes.length);
-    flushMounts(nextEntry.mountScopes);
     activeKind = nextKind;
-    activeNodes = nextEntry.nodes;
+    replaceNodesBetween(
+      end.parentNode!,
+      start,
+      end,
+      Array.from(holder.childNodes),
+      collectNodesBetween(start, end).length,
+    );
+    flushScopeMounts(scope);
   });
 }
 
-function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
-  const frame = currentHydrationFrame(parent);
-  let start = frame ? claimHydrationNode(parent, (node) => isCommentNode(node, BLOCK_START)) as Comment | null : null;
-  let end: Comment | null = null;
-  let currentEntries: Array<ListEntry<T>> = [];
-  let hydrated = false;
+// The longest run of rows already in order stays where it is, and only the others
+// move. Swapping two rows then moves two nodes, not everything between them.
+function markStableRows(positions: number[]): boolean[] {
+  const previous = new Array<number>(positions.length);
+  const tails: number[] = [];
 
-  if (start && frame) {
-    let cursor = start.nextSibling;
-
-    while (cursor && !isCommentNode(cursor, BLOCK_END)) {
-      cursor = cursor.nextSibling;
+  for (let index = 0; index < positions.length; index += 1) {
+    const position = positions[index]!;
+    if (position < 0) {
+      continue;
     }
 
-    if (isCommentNode(cursor, BLOCK_END)) {
-      end = cursor;
-      frame.current = end.nextSibling as ChildNode | null;
-      hydrated = true;
-    } else {
-      frame.current = start;
-      bailHydration(parent, `comment(${BLOCK_START}) ... comment(${BLOCK_END})`, cursor);
-      start = null;
-    }
-  }
-
-  if (!start) {
-    if (frame?.current) {
-      bailHydration(parent, `comment(${BLOCK_START})`);
-    }
-    start = document.createComment(BLOCK_START);
-    end = document.createComment(BLOCK_END);
-    appendNode(parent, start);
-    appendNode(parent, end);
-  } else if (!end) {
-    end = document.createComment(BLOCK_END);
-    appendNode(parent, end);
-  }
-
-  effect(() => {
-    if (hydrated) {
-      const items = binding.read();
-      const nodes = collectNodesBetween(start!, end!);
-
-      if (nodes.length !== items.length) {
-        warnHydrationMismatch(`list(${items.length})`, start);
-        for (const node of nodes) {
-          if (node.parentNode === parent) {
-            removeNode(parent, node);
-          }
-        }
-        hydrated = false;
-        currentEntries = [];
+    let low = 0;
+    let high = tails.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (positions[tails[middle]!]! < position) {
+        low = middle + 1;
       } else {
-        currentEntries = items.map((item, index) => ({
-          item,
-          key: binding.key(item, index),
-          node: nodes[index]!,
-          scope: createScope(),
-          mountScopes: [],
-        }));
-        hydrated = false;
-        return;
+        high = middle;
       }
-
-      hydrated = false;
     }
 
+    previous[index] = low > 0 ? tails[low - 1]! : -1;
+    tails[low] = index;
+  }
+
+  const stable = new Array<boolean>(positions.length).fill(false);
+  let cursor = tails.length > 0 ? tails[tails.length - 1]! : -1;
+
+  while (cursor >= 0) {
+    stable[cursor] = true;
+    cursor = previous[cursor]!;
+  }
+
+  return stable;
+}
+
+function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
+  const { start, end, hydrated: startsHydrated } = mountBlockMarkers(parent);
+  let hydrated = startsHydrated;
+  let currentEntries: Array<ListEntry<T>> = [];
+  let created: Array<ListEntry<T>> = [];
+
+  onScopeCleanup(() => {
+    for (const entry of currentEntries) {
+      disposeEntry(entry);
+    }
+  });
+
+  const createEntry = (item: T, index: number, key: string | number): ListEntry<T> => {
+    const entry = createListEntry(binding, item, index, key);
+    created.push(entry);
+    return entry;
+  };
+
+  const updateEntry = (entry: ListEntry<T>, item: T, index: number): void => {
+    entry.index = index;
+
+    if (entry.indexCell) {
+      set(entry.indexCell, index);
+    }
+
+    if (entry.item.value !== item) {
+      set(entry.item, item);
+    }
+  };
+
+  const update = (): void => {
     const items = binding.read();
     const nextKeys = new Array<string | number>(items.length);
     for (let index = 0; index < items.length; index += 1) {
       nextKeys[index] = binding.key(items[index]!, index);
+    }
+
+    const parent = end.parentNode!;
+
+    if (hydrated) {
+      hydrated = false;
+
+      if (collectNodesBetween(start, end).length !== items.length) {
+        warnHydrationMismatch(`list(${items.length})`, start);
+      }
+
+      // Rows claim their prerendered nodes, which then move back into place.
+      const listFrame = openHydrationFrame(parent, "list", end);
+      if (listFrame) {
+        listFrame.current = start.nextSibling as ChildNode | null;
+      }
+
+      currentEntries = items.map((item, index) => createEntry(item, index, nextKeys[index]!));
+      closeHydrationFrame(listFrame);
+      insertNodesBefore(parent, currentEntries.map((entry) => entry.node), end);
+      return;
     }
 
     if (currentEntries.length === 0) {
@@ -908,174 +834,166 @@ function mountListSlot<T>(parent: Node, binding: KeyedList<T>): void {
 
       const nextEntries: Array<ListEntry<T>> = [];
       const freshNodes: Node[] = [];
-      const freshMounts: Scope[] = [];
 
       for (let index = 0; index < items.length; index += 1) {
-        const item = items[index]!;
-        const entry = renderListEntry(binding, item, index, nextKeys[index]!);
+        const entry = createEntry(items[index]!, index, nextKeys[index]!);
         freshNodes.push(entry.node);
-        freshMounts.push(...entry.mountScopes);
         nextEntries.push(entry);
       }
 
-      insertNodesBefore(parent, freshNodes, end!);
-      flushMounts(freshMounts);
+      insertNodesBefore(parent, freshNodes, end);
       currentEntries = nextEntries;
       return;
     }
 
-    if (currentEntries.length === items.length) {
-      let stableOrder = true;
+    if (items.length === 0) {
+      replaceNodesBetween(parent, start, end, [], currentEntries.length);
+      for (const entry of currentEntries) {
+        disposeEntry(entry);
+      }
+      currentEntries = [];
+      return;
+    }
 
-      for (let index = 0; index < items.length; index += 1) {
-        if (currentEntries[index]!.key !== nextKeys[index]!) {
-          stableOrder = false;
-          break;
-        }
+    // Most changes leave both ends alone: appending, removing one row, swapping two.
+    const oldLength = currentEntries.length;
+    const newLength = items.length;
+    let head = 0;
+
+    while (head < oldLength && head < newLength && currentEntries[head]!.key === nextKeys[head]) {
+      updateEntry(currentEntries[head]!, items[head]!, head);
+      head += 1;
+    }
+
+    if (head === oldLength && head === newLength) {
+      return;
+    }
+
+    let oldTail = oldLength - 1;
+    let newTail = newLength - 1;
+
+    while (oldTail >= head && newTail >= head && currentEntries[oldTail]!.key === nextKeys[newTail]) {
+      updateEntry(currentEntries[oldTail]!, items[newTail]!, newTail);
+      oldTail -= 1;
+      newTail -= 1;
+    }
+
+    const nextEntries = new Array<ListEntry<T>>(newLength);
+
+    for (let index = 0; index < head; index += 1) {
+      nextEntries[index] = currentEntries[index]!;
+    }
+
+    for (let index = newTail + 1; index < newLength; index += 1) {
+      nextEntries[index] = currentEntries[index - newLength + oldLength]!;
+    }
+
+    const reference: Node = newTail + 1 < newLength ? nextEntries[newTail + 1]!.node : end;
+
+    if (oldTail < head) {
+      const freshNodes: Node[] = [];
+
+      for (let index = head; index <= newTail; index += 1) {
+        const entry = createEntry(items[index]!, index, nextKeys[index]!);
+        nextEntries[index] = entry;
+        freshNodes.push(entry.node);
       }
 
-      if (stableOrder) {
-      const nextEntries: Array<ListEntry<T>> = [];
+      insertNodesBefore(parent, freshNodes, reference);
+      currentEntries = nextEntries;
+      return;
+    }
 
-        for (let index = 0; index < items.length; index += 1) {
-          const item = items[index]!;
-          const key = nextKeys[index]!;
-          const previous = currentEntries[index]!;
-
-          if (previous.item === item) {
-            nextEntries.push(previous);
-            continue;
-          }
-
-          const nextEntry = renderListEntry(binding, item, index, key);
-
-          if (
-            previous.node.parentNode === parent &&
-            nextEntry.scope.cleanups.length === 0 &&
-            nextEntry.scope.mounts.length === 0 &&
-            tryPatchNodeInPlace(previous.node, nextEntry.node)
-          ) {
-            disposeScope(nextEntry.scope);
-            nextEntries.push({
-              item,
-              key,
-              node: previous.node,
-              scope: previous.scope,
-              mountScopes: previous.mountScopes,
-            });
-            continue;
-          }
-
-          if (previous.node.parentNode === parent) {
-            replaceNode(parent, nextEntry.node, previous.node);
-          }
-          flushMounts(nextEntry.mountScopes);
-          disposeScope(previous.scope);
-          nextEntries.push(nextEntry);
+    if (newTail < head) {
+      for (let index = head; index <= oldTail; index += 1) {
+        const entry = currentEntries[index]!;
+        if (entry.node.parentNode === parent) {
+          removeNode(parent, entry.node);
         }
-
-        currentEntries = nextEntries;
-        return;
+        disposeEntry(entry);
       }
+
+      currentEntries = nextEntries;
+      return;
     }
 
     const previousByKey = new Map<string | number, ListEntry<T>>();
 
-    for (const entry of currentEntries) {
+    for (let position = head; position <= oldTail; position += 1) {
+      const entry = currentEntries[position]!;
       if (previousByKey.has(entry.key) && IS_DEV) {
         console.warn(`[hel] Duplicate key "${String(entry.key)}" in keyed list.`);
       }
+      entry.position = position;
       previousByKey.set(entry.key, entry);
     }
 
-    const nextEntries: Array<ListEntry<T>> = [];
+    const positions = new Array<number>(newTail - head + 1);
 
-    for (let index = 0; index < items.length; index += 1) {
-      const item = items[index]!;
+    for (let index = head; index <= newTail; index += 1) {
       const key = nextKeys[index]!;
       const previous = previousByKey.get(key);
-      previousByKey.delete(key);
 
-      if (previous && previous.item === item) {
-        nextEntries.push(previous);
-        continue;
-      }
-
-      const nextEntry = renderListEntry(binding, item, index, key);
-
-      if (
-        previous &&
-        previous.node.parentNode === parent &&
-        nextEntry.scope.cleanups.length === 0 &&
-        nextEntry.scope.mounts.length === 0 &&
-        tryPatchNodeInPlace(previous.node, nextEntry.node)
-      ) {
-        disposeScope(nextEntry.scope);
-        nextEntries.push({
-          item,
-          key,
-          node: previous.node,
-          scope: previous.scope,
-          mountScopes: previous.mountScopes,
-        });
-        continue;
-      }
-
-      if (previous?.node.parentNode === parent) {
-        replaceNode(parent, nextEntry.node, previous.node);
-        flushMounts(nextEntry.mountScopes);
-        disposeScope(previous.scope);
-      }
-
-      nextEntries.push(nextEntry);
-    }
-
-    for (const entry of previousByKey.values()) {
-      if (entry.node.parentNode === parent) {
-        removeNode(parent, entry.node);
-      }
-      disposeScope(entry.scope);
-    }
-
-    let anchor: Node = start!;
-    let pendingInsertions: Node[] = [];
-    let pendingReference: Node | null = end!;
-    let pendingMounts: Scope[] = [];
-
-    const flushPendingInsertions = (): void => {
-      if (pendingInsertions.length === 0) {
-        return;
-      }
-
-      insertNodesBefore(parent, pendingInsertions, pendingReference);
-      flushMounts(pendingMounts);
-      pendingInsertions = [];
-      pendingMounts = [];
-    };
-
-    for (const entry of nextEntries) {
-      const expectedNextSibling = anchor.nextSibling;
-      if (expectedNextSibling === entry.node) {
-        flushPendingInsertions();
-        anchor = entry.node;
-        continue;
-      }
-
-      if (entry.node.parentNode !== parent) {
-        pendingInsertions.push(entry.node);
-        pendingMounts.push(...entry.mountScopes);
-        pendingReference = expectedNextSibling ?? end!;
+      if (previous) {
+        previousByKey.delete(key);
+        updateEntry(previous, items[index]!, index);
+        nextEntries[index] = previous;
+        positions[index - head] = previous.position;
       } else {
-        flushPendingInsertions();
-        insertNodeBefore(parent, entry.node, expectedNextSibling ?? end!);
-        flushMounts(entry.mountScopes);
+        nextEntries[index] = createEntry(items[index]!, index, key);
+        positions[index - head] = -1;
       }
-
-      anchor = entry.node;
     }
 
-    flushPendingInsertions();
+    // When no row survives, the old ones go at once instead of one by one.
+    if (previousByKey.size === oldLength) {
+      replaceNodesBetween(parent, start, end, [], oldLength);
+      for (const entry of currentEntries) {
+        disposeEntry(entry);
+      }
+    } else {
+      for (const entry of previousByKey.values()) {
+        if (entry.node.parentNode === parent) {
+          removeNode(parent, entry.node);
+        }
+        disposeEntry(entry);
+      }
+    }
+
+    // From the back, so the node after the current one is already in its place.
+    const stable = markStableRows(positions);
+    let anchor = reference;
+    let pending: Node[] = [];
+
+    for (let index = newTail; index >= head; index -= 1) {
+      const node = nextEntries[index]!.node;
+
+      if (!stable[index - head]) {
+        pending.push(node);
+        continue;
+      }
+
+      insertNodesBefore(parent, pending.reverse(), anchor);
+      pending = [];
+      anchor = node;
+    }
+
+    insertNodesBefore(parent, pending.reverse(), anchor);
     currentEntries = nextEntries;
+  };
+
+  createEffect(() => {
+    created = [];
+
+    try {
+      update();
+    } catch (error) {
+      // The list stays as it was, so rows created for this update have no owner.
+      for (const entry of created) {
+        disposeEntry(entry);
+      }
+      throw error;
+    }
   });
 }
 
@@ -1084,8 +1002,8 @@ function mountAttrSlot(element: HTMLElement, key: string, read: () => unknown): 
   let previous: unknown;
   let hydrated = isHydrating();
 
-  effect(() => {
-    const next = read();
+  createEffect(() => {
+    const next = unwrapAttrValue(read());
 
     if (hydrated) {
       hydrated = false;
@@ -1109,59 +1027,55 @@ function mountAttrSlot(element: HTMLElement, key: string, read: () => unknown): 
 }
 
 export function appendChild(parent: Node, value: unknown): void {
-  if (isComponentResult(value)) {
-    appendChild(parent, value.value);
-    flushScopeMounts(value.scope);
-    return;
-  }
-
-  if (isNodeFactory(value)) {
-    appendChild(parent, value.read());
-    return;
-  }
-
-  if (isTextBinding(value)) {
-    mountTextBinding(parent, value.cell as Cell<unknown>);
-    return;
-  }
-
-  if (isTemplateFactory(value)) {
-    if (isHydrating()) {
-      appendChild(parent, value.read());
-      return;
-    }
-
-    appendNode(parent, cloneTemplate(value.html));
-    return;
-  }
-
-  if (isBranchBinding(value)) {
-    mountBranchSlot(parent, value);
-    return;
-  }
-
-  if (isKeyedList(value)) {
-    mountListSlot(parent, value);
-    return;
-  }
-
-  if (isDynamic(value)) {
-    if (value.kind === "text") {
-      mountTextSlot(parent, value.read);
-      return;
-    }
-
-    mountBlockSlot(parent, value.read);
-    return;
-  }
-
   if (value == null || value === false || value === true) {
     return;
   }
 
+  if (typeof value !== "object") {
+    mountStaticText(parent, String(value));
+    return;
+  }
+
+  switch ((value as { $t?: number }).$t) {
+    case COMPONENT_RESULT: {
+      const result = value as ComponentResult;
+      appendChild(parent, result.value);
+      flushScopeMounts(result.scope);
+      return;
+    }
+    case NODE_FACTORY:
+      appendChild(parent, (value as NodeFactory).read());
+      return;
+    case TEXT_BINDING:
+      mountTextBinding(parent, (value as TextBinding).cell as Cell<unknown>);
+      return;
+    case TEMPLATE_FACTORY:
+      if (isHydrating()) {
+        appendChild(parent, (value as TemplateFactory).read());
+        return;
+      }
+
+      appendNode(parent, cloneTemplate((value as TemplateFactory).html));
+      return;
+    case BRANCH:
+      mountBranchSlot(parent, value as BranchBinding);
+      return;
+    case LIST:
+      mountListSlot(parent, value as KeyedList<unknown>);
+      return;
+    case DYNAMIC:
+      if ((value as Dynamic).kind === "text") {
+        mountTextSlot(parent, (value as Dynamic).read);
+        return;
+      }
+
+      mountBlockSlot(parent, (value as Dynamic).read);
+      return;
+  }
+
   if (value instanceof Node) {
     if (value.parentNode !== parent) {
-      appendNode(parent, value);
+      placeNode(parent, value);
     }
     return;
   }
@@ -1173,14 +1087,18 @@ export function appendChild(parent: Node, value: unknown): void {
     return;
   }
 
+  if (isThenable(value)) {
+    throw new Error(RENDERED_PROMISE_MESSAGE);
+  }
+
   mountStaticText(parent, String(value));
 }
 
 function shouldDeferProperty(element: HTMLElement, key: string): boolean {
-  return element instanceof HTMLSelectElement && key === "value";
+  return key === "value" && element instanceof HTMLSelectElement;
 }
 
-function applyProp(element: HTMLElement, key: string, value: unknown): void {
+export function applyProp(element: HTMLElement, key: string, value: unknown): void {
   if (key === "children") {
     return;
   }
@@ -1215,12 +1133,14 @@ function applyProp(element: HTMLElement, key: string, value: unknown): void {
   writeProperty(element, key, value);
 }
 
-export function applyProps(element: HTMLElement, props: Record<string, unknown>): Array<() => void> {
-  const deferred: Array<() => void> = [];
+export function applyProps(element: HTMLElement, props: Record<string, unknown>): Array<() => void> | null {
+  let deferred: Array<() => void> | null = null;
 
-  for (const [key, value] of Object.entries(props)) {
+  for (const key in props) {
+    const value = props[key];
+
     if (shouldDeferProperty(element, key)) {
-      deferred.push(() => applyProp(element, key, value));
+      (deferred ??= []).push(() => applyProp(element, key, value));
       continue;
     }
 

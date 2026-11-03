@@ -10,6 +10,7 @@ export type MeasureRow = {
   attr: number;
   node: number;
   tpl: number;
+  tree: number;
   arrowFns: number;
 };
 
@@ -80,6 +81,7 @@ export function measureTransforms(): MeasureRow[] {
       attr: count(output, "__attr("),
       node: count(output, "__node("),
       tpl: count(output, "__tpl("),
+      tree: count(output, "__tree("),
       arrowFns: count(output, "=>"),
     };
   });

@@ -8,10 +8,11 @@ That matters because the framework is intentionally trying to stay small.
 
 ### Compiler limits
 
-- only PascalCase components are transformed
+- `let user: User | null = null` narrows to `null` for TypeScript, so write `let user = null as User | null`
+- components are PascalCase functions, anonymous default exports containing JSX, or functions containing JSX passed to a call
 - reactive `let` destructuring is not supported
-- component parameters must currently be a simple identifier
-- helper analysis is intentionally local and conservative
+- component parameters must be a plain identifier or an object pattern
+- a module-level `let` is not reactive
 - unsupported syntax should fail clearly, but that diagnostic surface is still growing
 
 ### Runtime limits
@@ -22,9 +23,13 @@ That matters because the framework is intentionally trying to stay small.
 
 ### Store limits
 
-- `store(...)` is intentionally local and coarse-grained
+- `Date` and `Map` values are not supported yet
 - it is not a full global state architecture
 - it is not trying to replicate every Solid store capability
+
+### Event limits
+
+- `onClick` is delegated to `document`, so it does not fire on detached elements, see [API-REFERENCE.md](API-REFERENCE.md)
 
 ### Router limits
 
@@ -33,9 +38,17 @@ That matters because the framework is intentionally trying to stay small.
 - no loaders or actions
 - no large framework-level data orchestration
 
+### Data limits
+
+- `useResource` has no cache, deduplication, or retry
+- the server never fetches, so preloading is written by hand
+- no Suspense and no streaming SSR
+
 ### Packaging limits
 
 - ESM-only
+- Vite 6 only, the one version it is tested with
+- not published yet
 - no CJS output
 - no final semver policy yet
 
@@ -163,8 +176,8 @@ That is intentional.
 
 ## Related Docs
 
-1. [GETTING-STARTED.md](C:/projects/hellscript/codex%20version/docs/GETTING-STARTED.md)
-2. [API-REFERENCE.md](C:/projects/hellscript/codex%20version/docs/API-REFERENCE.md)
-3. [REACTIVITY.md](C:/projects/hellscript/codex%20version/docs/REACTIVITY.md)
-4. [SSR-HYDRATION.md](C:/projects/hellscript/codex%20version/docs/SSR-HYDRATION.md)
-5. [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
+1. [GETTING-STARTED.md](GETTING-STARTED.md)
+2. [API-REFERENCE.md](API-REFERENCE.md)
+3. [REACTIVITY.md](REACTIVITY.md)
+4. [SSR-HYDRATION.md](SSR-HYDRATION.md)
+5. [M2-DESIGN.md](M2-DESIGN.md)

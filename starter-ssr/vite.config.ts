@@ -1,15 +1,6 @@
-import path from "node:path";
 import { defineConfig } from "vite";
-import { helMagicPlugin } from "hel/vite";
+import { helMagicPlugin } from "heljs/vite";
 
-export default defineConfig(({ isSsrBuild }) => ({
+export default defineConfig({
   plugins: [helMagicPlugin()],
-  resolve: {
-    alias: [
-      {
-        find: "hel/runtime",
-        replacement: isSsrBuild ? "hel/server" : path.resolve(__dirname, "node_modules/hel/dist/package/runtime.js"),
-      },
-    ],
-  },
-}));
+});

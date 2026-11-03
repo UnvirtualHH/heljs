@@ -39,7 +39,7 @@ Minimal `package.json` excerpt:
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "hel": "file:../hel"
+    "heljs": "file:../heljs"
   }
 }
 ```
@@ -50,7 +50,7 @@ Minimal `package.json` excerpt:
 
 ```ts
 import { defineConfig } from "vite";
-import { helMagicPlugin } from "hel/vite";
+import { helMagicPlugin } from "heljs/vite";
 
 export default defineConfig({
   plugins: [helMagicPlugin()],
@@ -62,7 +62,7 @@ export default defineConfig({
 `src/main.tsx`:
 
 ```tsx
-import { h, mount } from "hel/runtime";
+import { h, mount } from "heljs/runtime";
 
 function App() {
   let count = 0;
@@ -82,8 +82,9 @@ Important:
 
 - components must use PascalCase names
 - local reactive state is `let`
-- normal `const` helpers are fine
+- `const` values that read state stay up to date
 - there is no `signal()`, `effect()`, or `memo()` in user code
+- logic is shared through `use*` functions
 
 ## 5. Start the dev server
 
@@ -94,7 +95,7 @@ npm run dev
 ## Minimal Router Example
 
 ```tsx
-import { createRouter, h, mount } from "hel/runtime";
+import { createRouter, h, mount } from "heljs/runtime";
 
 const router = createRouter([
   { path: "/", view: () => <h1>Home</h1> },
@@ -120,35 +121,34 @@ Normal `<a href>` tags are the default. The router only intercepts known interna
 
 A working SSR example already exists in the repo:
 
-- [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
+- [starter-ssr](../starter-ssr)
 
 Important for external SSR projects:
 
-- client code imports from `hel/runtime`
-- the SSR build must alias `hel/runtime` to `hel/server`
+- client code imports from `heljs/runtime`
+- in an SSR build, `helMagicPlugin()` resolves `heljs/runtime` to `heljs/server` by itself
 
-That is already implemented in [starter-ssr/vite.config.ts](C:/projects/hellscript/codex%20version/starter-ssr/vite.config.ts).
+That is already implemented in [starter-ssr/vite.config.ts](../starter-ssr/vite.config.ts).
 
 ## Verified Examples in the Repo
 
 - Client-only starter:
-  - [starter](C:/projects/hellscript/codex%20version/starter)
+  - [starter](../starter)
 - SSR starter:
-  - [starter-ssr](C:/projects/hellscript/codex%20version/starter-ssr)
+  - [starter-ssr](../starter-ssr)
 - Larger demo app:
-  - [src/demo](C:/projects/hellscript/codex%20version/src/demo)
+  - [src/demo](../src/demo)
 
 ## Known Limits
 
 - reactive `let` destructuring is not implemented yet
-- component parameters currently must be a simple identifier
-- `list(...)` is the official keyed list story
-- `store(...)` is intentionally local and coarse-grained
+- `list(...)` and keyed `For` are the official keyed list story
 - the router is intentionally small: no nested routes, guards, or loader or action APIs
+- data loads with `useResource`, and async components are a compile error
 
 ## Useful Next Documents
 
 - Architecture:
-  - [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
+  - [M2-DESIGN.md](M2-DESIGN.md)
 - Release and publish guide:
-  - [RELEASING.md](C:/projects/hellscript/codex%20version/docs/RELEASING.md)
+  - [RELEASING.md](RELEASING.md)

@@ -38,3 +38,9 @@ jobs:
 
       - name: Verify Starters
         run: npm run verify:starters
+
+      - name: Verify Pet Shop
+        run: npm run verify:pet-shop
+
+      - name: Verify a Fresh Install
+        run: npm run verify:install

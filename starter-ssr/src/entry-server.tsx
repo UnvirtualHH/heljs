@@ -1,4 +1,4 @@
-import { renderToString } from "hel/server";
+import { renderToString } from "heljs/server";
 import { App } from "./App";
 
 export function renderApp() {

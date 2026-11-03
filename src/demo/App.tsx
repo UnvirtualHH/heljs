@@ -1,4 +1,4 @@
-import { createRouter, store } from "hel/runtime";
+import { createRouter, effect, store, untrack } from "heljs/runtime";
 import { readInitialState, STORAGE_KEY, createId, todayLabel } from "./data";
 import { AccentBadges } from "./components/AccentBadges";
 import { AboutPage } from "./pages/AboutPage";
@@ -192,6 +192,30 @@ export function App() {
     persist();
   }
 
+  function todosPage() {
+    return (
+      <TodosPage
+        state={state}
+        completionRatio={completionRatio}
+        pendingHeadline={pendingHeadline}
+        completedTodos={completedTodos}
+        openTodos={openTodos}
+        filteredTodos={filteredTodos}
+        selectedTodo={selectedTodo}
+        hasSelection={hasSelection}
+        selectedStatus={selectedStatus}
+        addTodo={addTodo}
+        setFilter={setFilter}
+        selectTodo={selectTodo}
+        toggleTodo={toggleTodo}
+        renameTodo={renameTodo}
+        changePriority={changePriority}
+        changeNote={changeNote}
+        removeTodo={removeTodo}
+      />
+    );
+  }
+
   const router = createRouter([
     {
       path: "/",
@@ -205,60 +229,25 @@ export function App() {
     },
     {
       path: "/todos",
-      view: () => {
-        syncSelectionFromRoute();
-        return (
-          <TodosPage
-            state={state}
-            completionRatio={completionRatio}
-            pendingHeadline={pendingHeadline}
-            completedTodos={completedTodos}
-            openTodos={openTodos}
-            filteredTodos={filteredTodos}
-            selectedTodo={selectedTodo}
-            hasSelection={hasSelection}
-            selectedStatus={selectedStatus}
-            addTodo={addTodo}
-            setFilter={setFilter}
-            selectTodo={selectTodo}
-            toggleTodo={toggleTodo}
-            renameTodo={renameTodo}
-            changePriority={changePriority}
-            changeNote={changeNote}
-            removeTodo={removeTodo}
-          />
-        );
-      },
+      view: () => todosPage(),
     },
     {
       path: "/todos/:id",
-      view: () => {
-        syncSelectionFromRoute(router.params().id);
-        return (
-          <TodosPage
-            state={state}
-            completionRatio={completionRatio}
-            pendingHeadline={pendingHeadline}
-            completedTodos={completedTodos}
-            openTodos={openTodos}
-            filteredTodos={filteredTodos}
-            selectedTodo={selectedTodo}
-            hasSelection={hasSelection}
-            selectedStatus={selectedStatus}
-            addTodo={addTodo}
-            setFilter={setFilter}
-            selectTodo={selectTodo}
-            toggleTodo={toggleTodo}
-            renameTodo={renameTodo}
-            changePriority={changePriority}
-            changeNote={changeNote}
-            removeTodo={removeTodo}
-          />
-        );
-      },
+      view: () => todosPage(),
     },
     { path: "/about", view: () => <AboutPage /> },
   ]);
+
+  // Keeps the selection in step with the URL, also on back and forward.
+  effect(() => {
+    const path = router.currentPath();
+    const id = router.params().id;
+    router.query();
+
+    if (path.startsWith("/todos")) {
+      untrack(() => syncSelectionFromRoute(id));
+    }
+  });
 
   return (
     <main class="app todo-app-shell">

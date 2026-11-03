@@ -1,5 +1,5 @@
 import "./styles.css";
-import { For, Show, createRouter, mount, store } from "hel/runtime";
+import { For, Show, createRouter, mount, store } from "heljs/runtime";
 
 type Note = {
   id: string;
@@ -33,7 +33,7 @@ function App() {
       <header class="hero">
         <p class="eyebrow">Hel starter</p>
         <h1>Minimal Consumer App</h1>
-        <p class="copy">This app consumes the packaged framework through `hel/runtime` and `hel/vite`.</p>
+        <p class="copy">This app consumes the packaged framework through `heljs/runtime` and `heljs/vite`.</p>
       </header>
 
       <nav class="nav">

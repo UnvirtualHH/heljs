@@ -1,21 +1,20 @@
+import { COMPONENT_RESULT, tagOf } from "../shared";
 import type { Scope } from "./core";
 
-const COMPONENT_RESULT = Symbol("hel.component-result");
-
 export type ComponentResult = {
-  [COMPONENT_RESULT]: true;
+  $t: typeof COMPONENT_RESULT;
   value: unknown;
   scope: Scope;
 };
 
 export function componentResult(value: unknown, scope: Scope): ComponentResult {
   return {
-    [COMPONENT_RESULT]: true,
+    $t: COMPONENT_RESULT,
     value,
     scope,
   };
 }
 
 export function isComponentResult(value: unknown): value is ComponentResult {
-  return typeof value === "object" && value !== null && COMPONENT_RESULT in value;
+  return tagOf(value) === COMPONENT_RESULT;
 }

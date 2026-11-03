@@ -1,167 +1,157 @@
 # Reactivity Model
 
-This document explains the current reactivity semantics in `Hel`.
+This document explains the reactivity semantics in `Hel`. The reasoning behind them is in [DESIGN-DECISIONS.md](DESIGN-DECISIONS.md).
 
 The short version is:
 
 - write normal components
-- use `let` for local mutable state
-- use normal functions for derived reads
-- let the compiler and runtime handle the slot wiring
+- use `let` for state
+- derive values with plain `const` or functions
+- share logic with `use*` functions
 
-## Core Rule
+One rule sits behind all of this: code either updates or fails loudly. It never stays silently stale.
 
-Inside a component:
+## Core Rules
 
-- `let` is reactive
-- `const` is normal TypeScript
+Inside a component or a `use*` function:
 
-Example:
+- a top-level `let` is reactive state
+- a top-level `const` that reads state stays up to date
+- nested functions and handlers are normal JavaScript
 
 ```tsx
 function Counter() {
   let count = 0;
-  const doubled = () => count * 2;
+  const doubled = count * 2;
 
   return (
     <>
       <button onClick={() => count++}>Count: {count}</button>
-      <p>Double: {doubled()}</p>
+      <p>Double: {doubled}</p>
     </>
   );
 }
 ```
 
-That is the intended default programming model.
-
-## What the Compiler Does
-
-### Reactive `let`
-
-This:
-
-```tsx
-let count = 0;
-count++;
-```
-
-is compiled in the direction of:
-
-```ts
-const __cell_count_0 = __cell(0);
-__set(__cell_count_0, __get(__cell_count_0) + 1);
-```
-
-So conceptually:
-
-- `let` becomes a hidden cell
-- reads become `get(...)`
-- writes become `set(...)`
-
-### Normal helpers
-
-This:
-
-```tsx
-const label = () => `${count} clicks`;
-```
-
-stays a normal function.
-
-What changes is that the compiler knows the function reads reactive state, so when it is used in JSX:
-
-```tsx
-<p>{label()}</p>
-```
-
-it becomes a reactive slot update instead of a one-time static expression.
-
 ## What Counts as Reactive
 
-Reactive today:
+The compiler cannot see across modules, so anything that might read state gets a slot, and the runtime finds the real dependencies.
 
-- local `let` bindings inside components
-- reads from `store(...)` values
-- local helper functions that directly or transitively read those bindings
+| Expression in JSX | Result |
+| --- | --- |
+| Literal, function, event handler, `ref` | static |
+| Identifier bound to a `let`, a derived `const`, or a prop alias | slot |
+| Any other identifier | static |
+| Contains a member read or a call | slot |
+| Compound of static parts only | static |
 
-Not automatically reactive today:
+That means all of these update:
 
-- plain `const` values that are calculated once
-- arbitrary module-level mutable state
-- arbitrary foreign objects
+```tsx
+<p>{cart.total}</p>            // a store or hook result from another module
+<p>{auth.role}</p>             // a store from useContext
+<p>{formatPrice(item)}</p>     // a helper that reads state
+```
+
+A slot that read nothing on its first run can never run again, so it costs little and leaves nothing to clean up.
+
+A slot can hold text or renderable content. `{props.children}` and helpers that return elements both work.
 
 ## `const` Semantics
 
-This works:
+A `const` follows the same rule as a JSX expression: if the initializer might read state, the value stays up to date.
 
 ```tsx
-const factor = 2;
-const doubled = () => count * factor;
+let count = 0;
+
+const doubled = count * 2;       // computed once per change
+const label = format(count);     // computed once per change, not once per read
+const title = props.title;       // re-reads the prop
+const { name } = props;          // re-reads the prop
+const factor = 2;                // plain
+const element = <i>{count}</i>;  // created once where it is first read
 ```
 
-This does not become a computed value:
+Handlers see the fresh value right after a write:
 
 ```tsx
-const doubled = count * 2;
+<button onClick={() => { count = 5; console.log(doubled); }} />  // logs 10
 ```
 
-That is just a normal expression evaluated at render time.
+These always stay plain, because re-running them would lose what they created:
 
-Current stance:
+- functions
+- `store(...)`, `new ...`, `use*(...)`, `create*(...)`
+- `untrack(...)`, `memo(...)`, `list(...)`, `ref(...)`, `effect(...)`, `cell(...)`
 
-- `const` helpers are good
-- implicit computed caching is not part of the model yet
+For an explicit snapshot, use `untrack`:
+
+```tsx
+const initial = untrack(() => count);
+```
+
+### What to watch for
+
+- An initializer with side effects runs again when its dependencies change.
+- An object from a derived `const` gets a new identity when its dependencies change.
+- A `const` can change between two reads, so TypeScript narrowing across an `await` may not hold.
+- A value that does not change still notifies dependents, which then compare or re-render.
+
+## Sharing Logic
+
+A function named `use*` is compiled the same way as a component, also in plain `.ts` files.
+
+```ts
+export function useCart() {
+  let items: CartItem[] = [];
+  const total = items.reduce((sum, item) => sum + item.price, 0);
+
+  function add(item: CartItem) {
+    items = [...items, item];
+  }
+
+  return { items, total, add };
+}
+```
+
+- Reactive values in a returned object literal become getters.
+- Writing through such a property throws a `TypeError`. Change state through functions.
+- Returning a reactive value directly, or inside an array, is a compile error, because it would be frozen.
+- `const { total, add } = useCart()` keeps working, the same as destructured props.
+- Arguments are evaluated once. For live input, pass a function: `useUser(() => props.id)`.
+
+### Shared state
+
+A single instance at module level is shared across components:
+
+```ts
+export const cart = useCart();
+```
+
+A `store(...)` at module level works as well. A module-level `let` stays a normal variable, because importers cannot be rewritten. The compiler warns when JSX reads one.
+
+## What Counts as a Component
+
+- functions with a PascalCase name
+- anonymous default exports containing JSX
+- functions containing JSX passed to a call: `const Name = wrap(() => <div />)`
+
+A component body runs once and does not subscribe to what it reads, wherever it is mounted. Only slots update.
 
 ## Slot Model
 
-The runtime does not use a virtual DOM. Instead it installs fine-grained slot updates.
+The runtime does not use a virtual DOM. It installs fine-grained slot updates.
 
-Current slot categories:
+- **Text slot** `<p>{count}</p>`: keeps a text node and patches its data.
+- **Attribute slot** `<button disabled={count === 0} />`: patches one attribute or property.
+- **Block slot** `{items.map(...)}`: manages one DOM range.
+- **Branch slot** `{visible ? <Panel /> : <Empty />}`: re-renders only when the branch changes.
 
-- text slots
-- attribute/property slots
-- block slots
-- specialized branch slots
+### Hidden branches
 
-### Text slot
-
-```tsx
-<p>{count}</p>
-```
-
-The runtime keeps a text node and later patches only its text data.
-
-### Attribute slot
-
-```tsx
-<button disabled={count === 0}>Reset</button>
-```
-
-The runtime later patches only the affected attribute or property.
-
-### Block slot
-
-```tsx
-{visible ? <Panel /> : <Empty />}
-```
-
-The runtime manages only the DOM range for that branch, not the entire parent subtree.
-
-### Branch slot
-
-Conditionals are now compiled through a specialized branch path instead of always falling back to a generic dynamic block.
-
-That matters because:
-
-- it preserves branch structure better
-- it improves toggle performance
-- it makes branch retention possible in hot paths
+A branch that is hidden is disposed, whether it was written with a ternary, `&&`, or `<Show>`. `onCleanup` runs, its effects stop, and it starts with fresh local state when shown again. To keep state across a toggle, keep it above the branch.
 
 ## `For`, `Show`, and Lists
-
-`For` and `Show` do not introduce a second reactivity model. They sit on top of the same runtime slot mechanics.
-
-### `For`
 
 ```tsx
 <For each={todos} key={(todo) => todo.id}>
@@ -169,10 +159,21 @@ That matters because:
 </For>
 ```
 
-- without `key`: behaves like an unkeyed list
-- with `key`: uses keyed list semantics
+- without `key`: an unkeyed block that re-renders
+- with `key`: nodes and row state move with their key
 
-### `Show`
+A keyed row stays alive when its key brings a new object, for example after a refetch. The compiler rewrites its parameters so they read the current value, like props, so its `let` state and focus survive and only the slots that read a changed value update. A row is rendered again only if its function reads the item directly in its own body:
+
+```tsx
+<For each={pets} key={(pet) => pet.id}>
+  {(pet) => {
+    const label = pet.name.toUpperCase(); // read here, so this row renders again
+    return <li>{label}</li>;
+  }}
+</For>
+```
+
+The same happens when the compiler cannot rewrite a parameter safely, such as with a default value in a destructuring pattern.
 
 ```tsx
 <Show when={selected} fallback={<Empty />}>
@@ -180,113 +181,59 @@ That matters because:
 </Show>
 ```
 
-- small convenience helper
-- not a second effect system
+`Show` is a branch slot. It re-renders only when the condition flips between truthy and falsy.
 
 ## Store Model
 
-`store(...)` is available for local objects and arrays:
+`store(...)` is available for objects and arrays:
 
 ```tsx
-const todos = store([
-  { title: "Ship Hel", done: false },
-]);
+const todos = store([{ title: "Ship Hel", done: false }]);
 
 todos[0].done = true;
 todos.push({ title: "Write docs", done: false });
 ```
 
-Current semantics:
+It is proxy-based and tracks each property separately. `Date` and `Map` values are not supported yet.
 
-- proxy-based
-- local
-- intentionally coarse-grained per store
+## Async Data and Errors
 
-This is deliberately not trying to be the full Solid store model.
+`useResource(source, fetcher)` loads data. Only `source` is tracked, so whatever identifies the data belongs there. See [ASYNC-AND-ERRORS.md](ASYNC-AND-ERRORS.md) for the reasoning.
 
-That means:
-
-- good enough for local app data
-- not yet a final answer for deep, large, cross-cutting state orchestration
+A slot that throws goes to the nearest `<ErrorBoundary>`. Without one, the error goes to `reportError`, and until its next change the slot shows nothing, because its content is disposed. An attribute keeps its last value, since removing `disabled` or `class` could be worse. The slot tries again on its next change.
 
 ## Scheduler Model
 
-Updates are not run synchronously one by one like a naive effect cascade.
-
-Current behavior:
-
 - writes schedule effects
-- effects flush through a microtask-based scheduler
-- repeated writes within the same tick are coalesced where possible
-
-Practical consequence:
-
-- fewer redundant reruns
-- more stable DOM update batches
-
-## What This Means for User Code
-
-Preferred style:
-
-```tsx
-function App() {
-  let count = 0;
-  const label = () => `${count} clicks`;
-
-  return <button onClick={() => count++}>{label()}</button>;
-}
-```
-
-Also acceptable:
-
-```tsx
-const state = store({ count: 0 });
-const label = () => `${state.count} clicks`;
-```
-
-What to avoid expecting:
-
-```tsx
-const label = `${count} clicks`;
-```
-
-That is not a tracked derived value.
-
-## Current Constraints
-
-The following are real constraints of the current model:
-
-- only PascalCase components are transformed
-- reactive `let` destructuring is not supported
-- component parameters must currently be a simple identifier
-- helper analysis is intentionally local and conservative
-- `store(...)` is intentionally coarse-grained
+- effects flush in a microtask
+- repeated writes within one tick are coalesced
+- derived values are invalidated synchronously and recompute when read
+- an effect that throws goes to the nearest `<ErrorBoundary>` or to `reportError`, and the others still run
+- effects that keep triggering each other are stopped after 100 cycles with an error
 
 ## Relation to `signal`, `effect`, and `memo`
 
-Hel does not expose those APIs as the primary user model, but internally there are close equivalents:
+These exist internally. User code should rarely need them.
 
-| Concept | Current Hel equivalent |
+| Concept | Hel equivalent |
 | --- | --- |
-| `signal()` | compiler-generated `cell(...)` |
-| reading a signal | `get(cell)` |
-| writing a signal | `set(cell, next)` |
-| `effect()` | internal slot effect installed by the runtime |
-| `memo()` | no direct equivalent yet |
+| `signal()` | `let`, compiled to `cell(...)` |
+| reading a signal | reading the variable, compiled to `get(cell)` |
+| writing a signal | assigning the variable, compiled to `set(cell, next)` |
+| `effect()` | slot effects installed by the runtime |
+| `memo()` | a `const` that reads state, compiled to `memo(...)` |
 
-That is why the mental model should be:
+## Current Constraints
 
-- hidden cells
-- explicit compiler wiring
-- implicit runtime slot effects
-
-not:
-
-- user-authored reactive primitives everywhere
+- reactive `let` destructuring is not supported
+- component parameters must be a plain identifier or an object pattern
+- only top-level `let` and `const` are transformed
+- an async component or `use*` function is a compile error. Use `useResource`
+- reads after an `await` are not tracked, and `onCleanup` and `useContext` do not work there
 
 ## Recommended Reading Order
 
-1. [GETTING-STARTED.md](C:/projects/hellscript/codex%20version/docs/GETTING-STARTED.md)
-2. [API-REFERENCE.md](C:/projects/hellscript/codex%20version/docs/API-REFERENCE.md)
-3. [SSR-HYDRATION.md](C:/projects/hellscript/codex%20version/docs/SSR-HYDRATION.md)
-4. [M2-DESIGN.md](C:/projects/hellscript/codex%20version/docs/M2-DESIGN.md)
+1. [GETTING-STARTED.md](GETTING-STARTED.md)
+2. [API-REFERENCE.md](API-REFERENCE.md)
+3. [SSR-HYDRATION.md](SSR-HYDRATION.md)
+4. [DESIGN-DECISIONS.md](DESIGN-DECISIONS.md)

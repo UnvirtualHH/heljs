@@ -18,6 +18,9 @@ import {
   type KeyedList,
   type NodeFactory,
   type RefBinding,
+  type Resource,
+  type ResourceOptions,
+  type Truthy,
   type ShowProps,
   type TemplateFactory,
   type TextBinding,
@@ -27,6 +30,7 @@ import {
   isNodeFactory,
   isTemplateFactory,
   isTextBinding,
+  renderRowOnce,
 } from "../shared";
 
 export interface Cell<T> {
@@ -50,18 +54,61 @@ export function store<T extends object>(value: T): T {
   return value;
 }
 
+let writeVersion = 0;
+
 export function get<T>(slot: Cell<T>): T {
   return slot.value;
 }
 
 export function set<T>(slot: Cell<T>, next: T): T {
   slot.value = next;
+  writeVersion += 1;
   return next;
+}
+
+export function untrack<T>(fn: () => T): T {
+  return fn();
+}
+
+// Nothing subscribes on the server, so a write anywhere invalidates the value.
+export function memo<T>(fn: () => T, lazy = false): () => T {
+  let computedAt = -1;
+  let value: T;
+
+  const read = (): T => {
+    if (computedAt !== writeVersion) {
+      value = fn();
+      computedAt = writeVersion;
+    }
+
+    return value;
+  };
+
+  if (!lazy) {
+    read();
+  }
+
+  return read;
 }
 
 export function effect(fn: () => void): () => void {
   fn();
   return () => undefined;
+}
+
+// Rendering is synchronous, so a request could not finish before the HTML does.
+// The loading state matches what the client starts with.
+export function useResource<S, T>(
+  source: () => S,
+  _fetcher: (source: Truthy<S>, signal: AbortSignal) => T | Promise<T>,
+  options: ResourceOptions<T> = {},
+): Resource<T> {
+  return {
+    value: options.initial,
+    error: undefined,
+    loading: options.initial === undefined && Boolean(source()),
+    refetch: () => undefined,
+  };
 }
 
 export function onCleanup(_fn: () => void): void {
@@ -142,28 +189,28 @@ export function useContext<T>(context: ContextDefinition<T>): T {
 
 export function node<T>(read: () => T): NodeFactory<T> {
   return {
-    [NODE_FACTORY]: true,
+    $t: NODE_FACTORY,
     read,
   };
 }
 
 export function text<T>(cellValue: Cell<T>): TextBinding<T> {
   return {
-    [TEXT_BINDING]: true,
+    $t: TEXT_BINDING,
     cell: cellValue,
   };
 }
 
 export function attr<T>(cellValue: Cell<T>): AttrBinding<T> {
   return {
-    [ATTR_BINDING]: true,
+    $t: ATTR_BINDING,
     cell: cellValue,
   };
 }
 
 export function tpl<T>(html: string, read: () => T): TemplateFactory<T> {
   return {
-    [TEMPLATE_FACTORY]: true,
+    $t: TEMPLATE_FACTORY,
     html,
     read,
   };
@@ -171,14 +218,14 @@ export function tpl<T>(html: string, read: () => T): TemplateFactory<T> {
 
 export function ref<T extends Element>(assign: (value: T) => void): RefBinding<T> {
   return {
-    [REF_BINDING]: true,
+    $t: REF_BINDING,
     assign,
   };
 }
 
 function createDynamic<T>(kind: DynamicKind, read: () => T): Dynamic<T> {
   return {
-    [DYNAMIC]: true,
+    $t: DYNAMIC,
     kind,
     read,
   };
@@ -206,7 +253,7 @@ export function branch<T>(
   alternate: () => T,
 ): BranchBinding<T> {
   return {
-    [BRANCH]: true,
+    $t: BRANCH,
     when,
     consequent,
     alternate,
@@ -219,7 +266,7 @@ export function list<T>(
   render: (item: T, index: number) => unknown,
 ): KeyedList<T> {
   return {
-    [LIST]: true,
+    $t: LIST,
     read,
     key,
     render,
@@ -252,33 +299,32 @@ function unwrapControlFlowValue<T>(value: T): T {
 
 export function For<T>(rawProps: Record<string, unknown>): any {
   const props = rawProps as ForProps<T>;
-  const items = (unwrapControlFlowValue(props.each) ?? []) as T[];
-  const render = props.children?.[0];
+  const readItems = () => (unwrapControlFlowValue(props.each) ?? []) as T[];
+  const render = unwrapControlFlowValue(props.children?.[0]);
+  const renderItem = (typeof render === "function" ? render : (item: T) => item) as (item: T, index: number) => unknown;
 
-  if (items.length === 0) {
-    return unwrapControlFlowValue(props.fallback) ?? null;
+  const rows = props.key
+    ? list(readItems, props.key, renderItem)
+    : dynBlock(() => readItems().map((item, index) => renderRowOnce(renderItem, item, index)));
+
+  if (!("fallback" in props)) {
+    return rows;
   }
 
-  if (typeof render !== "function") {
-    return items;
-  }
-
-  const renderItem = render as (item: T, index: number) => unknown;
-
-  if (!props.key) {
-    return items.map((item, index) => renderItem(item, index));
-  }
-
-  return list(
-    () => items,
-    props.key,
-    renderItem,
+  return branch(
+    () => readItems().length === 0,
+    () => unwrapControlFlowValue(props.fallback) ?? null,
+    () => rows,
   );
 }
 
 export function Show(rawProps: Record<string, unknown>): any {
   const props = rawProps as ShowProps;
-  return unwrapControlFlowValue(props.when) ? props.children ?? null : unwrapControlFlowValue(props.fallback) ?? null;
+  return branch(
+    () => unwrapControlFlowValue(props.when),
+    () => props.children ?? null,
+    () => unwrapControlFlowValue(props.fallback) ?? null,
+  );
 }
 
 export function component<T extends (...args: any[]) => any>(fn: T): T {
@@ -289,6 +335,9 @@ export function component<T extends (...args: any[]) => any>(fn: T): T {
   });
   return fn;
 }
+
+component(For);
+component(Show);
 
 export {
   isAttrBinding,

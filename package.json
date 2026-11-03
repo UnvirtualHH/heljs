@@ -1,7 +1,27 @@
 {
-  "name": "hel",
+  "name": "heljs",
   "private": false,
   "version": "0.1.0",
+  "license": "MIT",
+  "description": "A compiler-first UI framework without a virtual DOM: plain let is reactive state, in plain TSX.",
+  "keywords": [
+    "ui",
+    "framework",
+    "compiler",
+    "reactive",
+    "jsx",
+    "tsx",
+    "ssr",
+    "vite"
+  ],
+  "homepage": "https://github.com/UnvirtualHH/heljs#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/UnvirtualHH/heljs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/UnvirtualHH/heljs/issues"
+  },
   "type": "module",
   "publishConfig": {
     "access": "public"
@@ -39,35 +59,42 @@
     "build:package:types": "tsc -p tsconfig.package.json",
     "build:package": "npm run build:package:js && npm run build:package:types",
     "verify:starters": "npm --prefix starter install && npm --prefix starter run typecheck && npm --prefix starter run build && npm --prefix starter-ssr install && npm --prefix starter-ssr run typecheck && npm --prefix starter-ssr run build",
+    "verify:pet-shop": "npm --prefix pet-shop install && npm --prefix pet-shop run typecheck && npm --prefix pet-shop test && npm --prefix pet-shop run build",
     "verify:package": "node scripts/build-package.mjs && tsc -p tsconfig.package.json && npm run verify:starters",
     "pack:dry-run": "npm pack --dry-run",
     "pack:artifact": "npm pack --pack-destination artifacts",
-    "release:check": "npm run typecheck && npm test && npm run build && npm run verify:package && npm run pack:dry-run",
+    "release:check": "npm run typecheck && npm test && npm run build && npm run verify:package && npm run verify:pet-shop && npm run verify:install && npm run pack:dry-run",
     "prerender": "node scripts/prerender.mjs",
     "build": "npm run build:client && npm run build:server && npm run prerender",
     "bench": "vitest bench --run",
     "bench:runtime": "node --conditions=browser --import tsx scripts/bench-runtime.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build:package",
+    "verify:install": "node scripts/verify-install.mjs"
   },
   "devDependencies": {
-    "@babel/generator": "^7.27.0",
-    "@babel/parser": "^7.27.0",
-    "@babel/traverse": "^7.27.0",
-    "@babel/types": "^7.27.0",
     "@types/babel__generator": "^7.27.0",
     "@types/babel__traverse": "^7.28.0",
     "@types/node": "^22.13.10",
+    "esbuild": "^0.25.0",
     "happy-dom": "^20.8.4",
-    "tsx": "^4.21.0",
-    "typescript": "^5.8.2",
-    "vite": "^6.2.2",
-    "vitest": "^4.1.0"
-  },
-  "dependencies": {
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "solid-js": "^1.9.11",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.2",
+    "vitest": "^4.1.0",
     "vue": "^3.5.30"
+  },
+  "dependencies": {
+    "@babel/generator": "^7.27.0",
+    "@babel/parser": "^7.27.0",
+    "@babel/traverse": "^7.27.0",
+    "@babel/types": "^7.27.0"
+  },
+  "peerDependencies": {
+    "vite": "^6.0.0"
   }
 }
